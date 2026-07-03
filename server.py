@@ -982,10 +982,17 @@ async def openai_speech(req: OpenAIRequest, request: Request):
     os.makedirs(tmp_dir, exist_ok=True)
 
     try:
+        t0 = time.time()
         wav_path = await asyncio.to_thread(engine.generate, request_dict, tmp_dir)
+        gen_time = time.time() - t0
+        t1 = time.time()
         normalize_loudness(wav_path)
         trim_silence(wav_path)
         duration = get_audio_duration(wav_path)
+        post_time = time.time() - t1
+        total_time = time.time() - t0
+        print(f"[server] {req.model}: gen={gen_time:.2f}s post={post_time:.2f}s "
+              f"total={total_time:.2f}s audio={duration:.1f}s")
 
         save_output = request.headers.get("x-save-output", "false").lower() == "true"
 

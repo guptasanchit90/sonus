@@ -1,4 +1,5 @@
 import os
+import time
 import warnings
 from pathlib import Path
 
@@ -132,7 +133,7 @@ _MODEL_META: dict[str, dict] = {
     },
 }
 
-_model_cache = ModelCache(ttl=10, tag="chatterbox")
+_model_cache = ModelCache(ttl=30, tag="chatterbox")
 
 
 def _is_turbo(model_name: str) -> bool:
@@ -247,6 +248,7 @@ class ChatterboxEngine(BaseEngine):
 
         mx.random.seed(request["effective_seed"])
 
+        t0 = time.time()
         try:
             _patch_s3_tokenizer_hf()
             model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
@@ -306,7 +308,11 @@ class ChatterboxEngine(BaseEngine):
             print(f"[chatterbox] Generation failed for '{model_name}': {e}")
             raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
+        _model_cache.touch()
+
         if not os.path.exists(wav_path):
             raise HTTPException(status_code=500, detail="TTS produced no output file")
 
+        elapsed = time.time() - t0
+        print(f"[chatterbox] {model_name}: generate={elapsed:.2f}s | text_len={len(text)}")
         return wav_path

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 import warnings
 from pathlib import Path
 
@@ -110,7 +111,7 @@ _SPEAKERS: set[str] = {
 _speaker_embedding_cache: dict[str, mx.array] = {}
 _speaker_embedding_lock = threading.Lock()
 
-_model_cache = ModelCache(ttl=10, tag="qwen", on_evict=_speaker_embedding_cache.clear)
+_model_cache = ModelCache(ttl=30, tag="qwen", on_evict=_speaker_embedding_cache.clear)
 
 
 def _load_audio_for_embedding(audio_path: str):
@@ -350,6 +351,7 @@ class QwenEngine(BaseEngine):
 
         mx.random.seed(request["effective_seed"])
 
+        t0 = time.time()
         try:
             model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
         except HTTPException:
@@ -419,6 +421,8 @@ class QwenEngine(BaseEngine):
             print(f"[qwen] Generation failed (mode={mode}): {e}")
             raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
+        _model_cache.touch()
+
         wav_path = os.path.join(tmp_dir, "audio.wav")
         segments = sorted(
             (f for f in os.listdir(tmp_dir) if re.match(r"audio_\d+\.wav$", f)),
@@ -436,4 +440,7 @@ class QwenEngine(BaseEngine):
                 audio_parts.append(part)
             sf.write(wav_path, np.concatenate(audio_parts), sr)
 
+        elapsed = time.time() - t0
+        print(f"[qwen] {model_name}: generate={elapsed:.2f}s "
+              f"| segments={len(segments)} | text_len={len(text)}")
         return wav_path

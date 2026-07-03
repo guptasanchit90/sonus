@@ -1,4 +1,5 @@
 import os
+import time
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -17,6 +18,7 @@ try:
 except ImportError as exc:
     raise ImportError("fastapi is not installed. Run: pip install fastapi") from exc
 
+from src.cache import ModelCache
 from .base import BaseEngine, register
 
 MODELS_DIR = os.path.join(os.getcwd(), "models", "kokoro")
@@ -90,6 +92,7 @@ _VOICES: dict[str, list[str]] = {
 _ALL_VOICES: set[str] = {v for vs in _VOICES.values() for v in vs}
 
 MODEL_ID = "kokoro-v1.0"
+_kokoro_cache = ModelCache(ttl=30, tag="kokoro")
 
 
 def _onnx_path() -> str:
@@ -243,8 +246,11 @@ class KokoroEngine(BaseEngine):
         voices, weights = _parse_voices(voice)
         lang = _lang_for_voice(voices[0])
 
+        t0 = time.time()
         try:
-            kokoro = Kokoro(_onnx_path(), _voices_path())
+            kokoro = _kokoro_cache.get_or_load(
+                MODEL_ID, lambda: Kokoro(_onnx_path(), _voices_path())
+            )
 
             if len(voices) == 1:
                 voice_param = voices[0]
@@ -275,6 +281,8 @@ class KokoroEngine(BaseEngine):
             print(f"[kokoro] Generation failed: {e}")
             raise HTTPException(status_code=500, detail=f"Kokoro generation failed: {e}")
 
+        _kokoro_cache.touch()
+
         samples = np.array(samples)
         if add_pauses:
             pause_samples = _add_pauses(text, sample_rate)
@@ -287,4 +295,6 @@ class KokoroEngine(BaseEngine):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to write WAV: {e}")
 
+        elapsed = time.time() - t0
+        print(f"[kokoro] generate={elapsed:.2f}s | text_len={len(text)}")
         return wav_path

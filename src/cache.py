@@ -74,6 +74,11 @@ class ModelCache(Generic[T]):
         self._timer.daemon = True
         self._timer.start()
 
+    def touch(self) -> None:
+        with self._lock:
+            if self._model is not None:
+                self._reschedule()
+
     def _cancel_timer(self) -> None:
         if self._timer is not None:
             self._timer.cancel()
