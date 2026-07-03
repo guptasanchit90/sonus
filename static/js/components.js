@@ -132,16 +132,10 @@ comps['audio-player'] = {
 comps['voice-panel'] = {
   template: '#voice-panel-template',
   data() {
-    return { renaming: null, presetRenaming: null };
+    return { renaming: null };
   },
   computed: {
     items() { return this.$store.voiceDetails; },
-  },
-  mounted() {
-    fetch('/presets')
-      .then(r => r.json())
-      .then(data => { this.$store.presets = data; })
-      .catch(() => {});
   },
   methods: {
     startRename(name) {
@@ -188,21 +182,104 @@ comps['voice-panel'] = {
           });
         });
     },
+  },
+};
 
-    // ── Preset methods ──────────────────────────────────────────────────
+// ── SFX Panel ────────────────────────────────────────────────────────────────
+comps['sfx-panel'] = {
+  template: '#sfx-panel-template',
+  data() {
+    return { renaming: null, uploading: false };
+  },
+  computed: {
+    items() { return this.$store.sfxDetails || []; },
+  },
+  mounted() {
+    this.loadSFX();
+  },
+  methods: {
+    loadSFX() {
+      fetch('/v1/sfx')
+        .then(r => r.json())
+        .then(data => {
+          this.$store.sfxDetails = data.data || [];
+          this.$store.sfx = (data.data || []).map(s => s.name);
+        })
+        .catch(() => {});
+    },
+    triggerUpload() {
+      this.$refs.sfxUploadInput.click();
+    },
+    uploadSFXFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      this.uploading = true;
+      const fd = new FormData();
+      fd.append('file', file);
+      fetch('/sfx', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(() => {
+          this.loadSFX();
+        })
+        .catch(() => {})
+        .finally(() => {
+          this.uploading = false;
+          event.target.value = '';
+        });
+    },
+    startRename(name) {
+      this.renaming = { original: name, current: name };
+      this.$nextTick(() => {
+        const el = this.$el.querySelector('.sfx-name-edit');
+        if (el) { el.focus(); el.select(); }
+      });
+    },
+    submitRename() {
+      const r = this.renaming;
+      if (!r) return;
+      const val = r.current.trim();
+      if (!val || val === r.original) { this.renaming = null; return; }
+      fetch('/sfx/' + encodeURIComponent(r.original) + '?new_name=' + encodeURIComponent(val), { method: 'PUT' })
+        .then(r2 => r2.json())
+        .then(() => {
+          this.loadSFX();
+          this.renaming = null;
+        })
+        .catch(() => { this.renaming = null; });
+    },
+    cancelRename() { this.renaming = null; },
+    deleteSFX(name) {
+      if (!confirm('Delete SFX "' + name + '"?')) return;
+      fetch('/sfx/' + encodeURIComponent(name), { method: 'DELETE' })
+        .then(r => {
+          if (r.ok) this.loadSFX();
+        });
+    }
+  }
+};
 
-    startPresetRename(name) {
-      this.presetRenaming = { original: name, current: name };
+// ── Preset Panel ─────────────────────────────────────────────────────────────
+comps['preset-panel'] = {
+  template: '#preset-panel-template',
+  data() {
+    return { renaming: null };
+  },
+  computed: {
+    items() { return this.$store.presets || []; },
+  },
+  methods: {
+    startRename(name) {
+      this.renaming = { original: name, current: name };
       this.$nextTick(() => {
         const el = this.$el.querySelector('.preset-name-edit');
         if (el) { el.focus(); el.select(); }
       });
     },
-    submitPresetRename() {
-      const r = this.presetRenaming;
+    submitRename() {
+      const r = this.renaming;
       if (!r) return;
       const val = r.current.trim();
-      if (!val || val === r.original) { this.presetRenaming = null; return; }
+      if (!val || val === r.original) { this.renaming = null; return; }
       fetch('/presets/' + encodeURIComponent(r.original), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -211,12 +288,11 @@ comps['voice-panel'] = {
         .then(r2 => r2.json())
         .then(data => {
           if (data.presets) this.$store.presets = data.presets;
-          this.presetRenaming = null;
+          this.renaming = null;
         })
-        .catch(() => { this.presetRenaming = null; });
+        .catch(() => { this.renaming = null; });
     },
-    cancelPresetRename() { this.presetRenaming = null; },
-
+    cancelRename() { this.renaming = null; },
     deletePreset(name) {
       if (!confirm('Delete preset "' + name + '"?')) return;
       fetch('/presets/' + encodeURIComponent(name), { method: 'DELETE' })
@@ -225,7 +301,6 @@ comps['voice-panel'] = {
           if (data.presets) this.$store.presets = data.presets;
         });
     },
-
     applyPreset(preset) {
       fetch('/presets/' + encodeURIComponent(preset.name))
         .then(r => r.json())
@@ -576,6 +651,32 @@ comps['generate-form'] = {
       if (this.$store.e2eEnabled) parts.push('STT on');
       return parts.length ? '— ' + parts.join(' · ') : '';
     },
+    ssmlValidationError() {
+      const text = this.$store.form.text.trim();
+      if (!text.startsWith('<speak')) return null;
+
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'application/xml');
+        const parserError = doc.querySelector('parsererror');
+        if (parserError) {
+          return parserError.textContent || 'Malformed SSML syntax.';
+        }
+      } catch (e) {
+        return e.message || 'Malformed SSML syntax.';
+      }
+      return null;
+    },
+    allModelVoices() {
+      const voices = [];
+      const mVoices = this.modelVoices;
+      if (mVoices.built_in) voices.push(...mVoices.built_in);
+      if (mVoices.cloneable) voices.push(...mVoices.cloneable);
+      return voices;
+    },
+    allSFXFiles() {
+      return this.$store.sfx || [];
+    },
   },
   watch: {
     '$store.batchMode'(val) {
@@ -593,6 +694,108 @@ comps['generate-form'] = {
     },
   },
   methods: {
+    insertSSMLTag(tag, attrs = {}) {
+      const el = document.getElementById('text');
+      if (!el) return;
+
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const text = this.$store.form.text;
+      const selectedText = text.substring(start, end);
+
+      let attrStr = '';
+      for (const [k, v] of Object.entries(attrs)) {
+        attrStr += ` ${k}="${v}"`;
+      }
+
+      let replacement = '';
+      if (tag === 'break') {
+        replacement = `<break${attrStr}/>`;
+      } else if (tag === 'audio') {
+        replacement = `<audio${attrStr}>${selectedText || '[SFX]'}</audio>`;
+      } else if (tag === 'sub') {
+        replacement = `<sub${attrStr}>${selectedText || 'WWW'}</sub>`;
+      } else if (tag === 'say-as') {
+        replacement = `<say-as${attrStr}>${selectedText || 'acronym'}</say-as>`;
+      } else {
+        replacement = `<${tag}${attrStr}>${selectedText || '...'}</${tag}>`;
+      }
+
+      this.$store.form.text = text.substring(0, start) + replacement + text.substring(end);
+
+      this.$nextTick(() => {
+        el.focus();
+        const newPos = start + replacement.length;
+        el.setSelectionRange(newPos, newPos);
+      });
+    },
+    onVoiceSelect(event) {
+      const voice = event.target.value;
+      if (voice) {
+        this.insertSSMLTag('voice', { name: voice });
+        event.target.value = '';
+      }
+    },
+    onBreakSelect(event) {
+      let time = event.target.value;
+      if (time === 'custom') {
+        time = prompt("Enter pause duration (e.g. 500ms, 1s, 2s):", "1s");
+      }
+      if (time) {
+        this.insertSSMLTag('break', { time: time });
+      }
+      event.target.value = '';
+    },
+    onProsodySelect(event) {
+      const rate = event.target.value;
+      if (rate) {
+        this.insertSSMLTag('prosody', { rate: rate });
+        event.target.value = '';
+      }
+    },
+    onAudioSelect(event) {
+      let src = event.target.value;
+      if (src === 'custom') {
+        src = prompt("Enter audio file path or URL:", "https://example.com/sound.mp3");
+      }
+      if (src) {
+        this.insertSSMLTag('audio', { src: src });
+      }
+      event.target.value = '';
+    },
+    insertSayAsTag() {
+      this.insertSSMLTag('say-as', { 'interpret-as': 'characters' });
+    },
+    insertSubTag() {
+      this.insertSSMLTag('sub', { alias: 'substitution' });
+    },
+    loadSSMLTemplate() {
+      this.$store.form.text = `<speak>
+  <p>
+    <s>Hello, welcome to Sonus.</s>
+    <s>This is a demonstration of all SSML features.</s>
+  </p>
+  
+  <break time="1s"/>
+  
+  <p>
+    We can spell words like <say-as interpret-as="characters">SSML</say-as>,
+    or substitute abbreviations like <sub alias="World Wide Web">WWW</sub>.
+  </p>
+  
+  <break time="800ms"/>
+  
+  <voice name="am_adam">
+    <p>
+      <s>I am speaking in a different voice.</s>
+      <prosody rate="1.4">And now I am speaking much faster.</prosody>
+    </p>
+  </voice>
+  
+  <break time="500ms"/>
+  Narrator voice is back. Enjoy speaking freely!
+</speak>`;
+    },
     engineLabel(engine) {
       return engine.charAt(0).toUpperCase() + engine.slice(1);
     },

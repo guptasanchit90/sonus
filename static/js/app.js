@@ -8,14 +8,17 @@ const app = createApp({
   methods: {
     async loadFast() {
       try {
-        const [modelData, voiceData, sttData] = await Promise.all([
+        const [modelData, voiceData, sttData, sfxData] = await Promise.all([
           fetch('/v1/models?extras=true').then(r => r.json()),
           fetch('/v1/voices').then(r => r.json()),
           fetch('/v1/stt/models').then(r => r.json()).catch(() => ({ data: [] })),
+          fetch('/v1/sfx').then(r => r.json()).catch(() => ({ data: [] })),
         ]);
         this.$store.models = modelData.data || (Array.isArray(modelData) ? modelData : []);
         applyVoiceData(this.$store, voiceData.data || []);
         this.$store.e2eModels = sttData.data || [];
+        this.$store.sfxDetails = sfxData.data || [];
+        this.$store.sfx = (sfxData.data || []).map(s => s.name);
         const avail = (this.$store.e2eModels || []).filter(m => m.available);
         const mlxModel = avail.find(m => m.mlx_required);
         if (mlxModel) {

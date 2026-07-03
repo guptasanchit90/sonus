@@ -7,6 +7,8 @@ const store = reactive({
   models: [],
   voices: {},
   voiceDetails: [],
+  sfx: [],
+  sfxDetails: [],
   outputs: [],
 
   // Form

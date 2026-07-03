@@ -16,6 +16,7 @@ except ImportError:
 
 MODELS_DIR = os.path.join(os.getcwd(), "models")
 VOICES_DIR = os.path.join(os.getcwd(), "voices")
+SFX_DIR = os.path.join(os.getcwd(), "sfx")
 SAMPLE_RATE = 24000
 
 

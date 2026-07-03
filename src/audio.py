@@ -84,3 +84,54 @@ def wav_to_pcm(wav_path: str, pcm_path: str) -> bool:
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+
+
+def merge_wav_files(wav_paths: list[str], output_path: str) -> None:
+    try:
+        parts = []
+        sr = None
+        for path in wav_paths:
+            data, current_sr = sf.read(path)
+            if sr is None:
+                sr = current_sr
+            parts.append(data)
+        if parts:
+            merged = np.concatenate(parts)
+            sf.write(output_path, merged, sr)
+    except Exception:
+        logger.exception("merge_wav_files failed")
+        raise
+
+
+def generate_silence(duration: float, sample_rate: int, output_path: str) -> None:
+    try:
+        num_samples = int(duration * sample_rate)
+        silence_data = np.zeros(num_samples, dtype=np.float32)
+        sf.write(output_path, silence_data, sample_rate)
+    except Exception:
+        logger.exception("generate_silence failed")
+        raise
+
+
+def convert_to_wav_matching(input_path: str, output_path: str, sample_rate: int) -> bool:
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-v",
+        "error",
+        "-i",
+        input_path,
+        "-acodec",
+        "pcm_s16le",
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.exception("convert_to_wav_matching failed")
+        return False
