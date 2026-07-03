@@ -107,7 +107,15 @@ _MODEL_META: dict[str, dict] = {
 }
 
 _SPEAKERS: set[str] = {
-    'serena', 'vivian', 'uncle_fu', 'ryan', 'aiden', 'ono_anna', 'sohee', 'eric', 'dylan'
+    "serena",
+    "vivian",
+    "uncle_fu",
+    "ryan",
+    "aiden",
+    "ono_anna",
+    "sohee",
+    "eric",
+    "dylan",
 }
 
 _speaker_embedding_cache: dict[str, mx.array] = {}
@@ -396,10 +404,18 @@ class QwenEngine(BaseEngine):
                     raise HTTPException(status_code=500, detail="Failed to convert reference audio")
 
                 txt_path = os.path.splitext(voice_path)[0] + ".txt"
-                ref_text = "."
+                ref_text = None
                 if os.path.exists(txt_path):
                     with open(txt_path, "r", encoding="utf-8") as fh:
-                        ref_text = fh.read().strip() or "."
+                        ref_text = fh.read().strip() or None
+                if not ref_text:
+                    name = request["sample_voice_file"]
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"No transcript found for voice '{name}'. "
+                        "Re-upload the voice file so a transcript is generated, "
+                        "or place a <name>.txt file alongside the WAV.",
+                    )
 
                 embedding = _get_or_compute_speaker_embedding(model, voice_path)
                 _inject_speaker_embedding(model, embedding)
@@ -443,6 +459,8 @@ class QwenEngine(BaseEngine):
             sf.write(wav_path, np.concatenate(audio_parts), sr)
 
         elapsed = time.time() - t0
-        print(f"[qwen] {model_name}: generate={elapsed:.2f}s "
-              f"| segments={len(segments)} | text_len={len(text)}")
+        print(
+            f"[qwen] {model_name}: generate={elapsed:.2f}s "
+            f"| segments={len(segments)} | text_len={len(text)}"
+        )
         return wav_path

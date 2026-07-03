@@ -539,6 +539,24 @@ class StageUrlRequest(BaseModel):
     name: str | None = None
 
 
+async def _transcribe_voice(path: str, name: str):
+    for stt in STT_ENGINES:
+        models = [m["model"] for m in stt.list_models() if m.get("available")]
+        try:
+            if not models:
+                models = [m["model"] for m in stt.list_models()]
+            result = await asyncio.to_thread(stt.transcribe, path, models[0], None, 0.0)
+            transcript = (result.get("text") or "").strip()
+            if transcript:
+                txt_path = os.path.splitext(path)[0] + ".txt"
+                with open(txt_path, "w", encoding="utf-8") as fh:
+                    fh.write(transcript)
+                print(f"[server] Transcribed voice '{name}' ({len(transcript)} chars)")
+            break
+        except Exception as e:
+            print(f"[server] Auto-transcribe failed for '{name}' with {type(stt).__name__}: {e}")
+
+
 @app.post("/voice", summary="Upload a voice file (any audio format)", tags=["voice-management"])
 async def upload_voice(
     file: UploadFile = File(...),
@@ -599,6 +617,8 @@ async def upload_voice(
         meta[safe_name] = meta.get(safe_name, {})
         meta[safe_name]["description"] = description
         _save_voice_metadata(meta)
+
+    await _transcribe_voice(target, safe_name)
 
     return {
         "name": safe_name,
@@ -808,7 +828,7 @@ def delete_stage_voice(name: str):
     summary="Save a staged voice permanently",
     tags=["voice-management"],
 )
-def save_stage_voice(name: str):
+async def save_stage_voice(name: str):
     safe = name if name.endswith(".wav") else name + ".wav"
     stage_path = os.path.join(STAGE_DIR, safe)
     if not os.path.exists(stage_path):
@@ -838,6 +858,8 @@ def save_stage_voice(name: str):
     size = os.path.getsize(target)
     created_at = os.path.getmtime(target)
     url = f"/voice/{safe}"
+
+    await _transcribe_voice(target, safe)
 
     return {
         "name": safe,
@@ -1480,9 +1502,7 @@ def download_audio_url(url: str, dest_path: str) -> bool:
         return False
 
 
-@app.post(
-    "/v1/preview-ssml", summary="Preview auto-SSML conversion", tags=["text-to-speech"]
-)
+@app.post("/v1/preview-ssml", summary="Preview auto-SSML conversion", tags=["text-to-speech"])
 def preview_ssml(text: str = Body(..., embed=True)):
     try:
         result = to_ssml(text)
