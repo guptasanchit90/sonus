@@ -17,6 +17,8 @@ outputs/**
 !outputs/**/
 presets/**
 !presets/.gitkeep
+sfx/**
+!sfx/.gitkeep
 
 # System files
 .DS_Store

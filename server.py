@@ -283,17 +283,22 @@ class AudioSegment:
         voice: str | None = None,
         speed: float | None = None,
         temperature: float | None = None,
+        async_play: bool = False,
+        volume: float = 0.3,
     ):
         self.src = src
         self.fallback_text = fallback_text
         self.voice = voice
         self.speed = speed
         self.temperature = temperature
+        self.async_play = async_play
+        self.volume = volume
 
     def __repr__(self) -> str:
         return (
             f"AudioSegment(src={repr(self.src)}, fallback_text={repr(self.fallback_text)}, "
-            f"voice={repr(self.voice)}, speed={self.speed}, temp={self.temperature})"
+            f"voice={repr(self.voice)}, speed={self.speed}, temp={self.temperature}, "
+            f"async={self.async_play}, volume={self.volume})"
         )
 
 
@@ -390,6 +395,14 @@ def parse_ssml(
             src = node.attrib.get("src")
             if src:
                 fallback = node.text.strip() if node.text else None
+                async_play = "async" in node.attrib
+                volume = 0.3
+                vol_str = node.attrib.get("volume")
+                if vol_str:
+                    try:
+                        volume = float(vol_str)
+                    except ValueError:
+                        pass
                 segments.append(
                     AudioSegment(
                         src=src,
@@ -397,6 +410,8 @@ def parse_ssml(
                         voice=node_voice,
                         speed=node_speed,
                         temperature=node_temp,
+                        async_play=async_play,
+                        volume=volume,
                     )
                 )
                 if node.tail and node.tail.strip():
@@ -1512,6 +1527,37 @@ def preview_ssml(text: str = Body(..., embed=True)):
 
 
 @app.post(
+    "/v1/parse-ssml",
+    summary="Parse SSML into segment list (including async audio)",
+    tags=["text-to-speech"],
+)
+def parse_ssml_endpoint(body: str = Body(..., embed=True)):
+    try:
+        segments = parse_ssml(body)
+        result = []
+        for seg in segments:
+            if isinstance(seg, TextSegment):
+                result.append({"type": "text", "text": seg.text, "voice": seg.voice})
+            elif isinstance(seg, SilenceSegment):
+                result.append({"type": "silence", "duration": seg.duration})
+            elif isinstance(seg, AudioSegment):
+                entry: dict = {
+                    "type": "audio",
+                    "src": seg.src,
+                    "async": seg.async_play,
+                    "volume": seg.volume,
+                }
+                if seg.fallback_text:
+                    entry["fallback_text"] = seg.fallback_text
+                result.append(entry)
+        return JSONResponse(content={"segments": result})
+    except ET.ParseError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid SSML: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
     "/v1/audio/speech", summary="Generate speech (OpenAI-compatible)", tags=["text-to-speech"]
 )
 async def openai_speech(req: OpenAIRequest, request: Request):
@@ -1603,7 +1649,19 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                             ),
                         )
             else:
-                if seg.fallback_text:
+                if seg.async_play:
+                    pre_path = os.path.join(tempfile.gettempdir(), f"prefetch_{uuid.uuid4().hex}")
+                    ok = await asyncio.to_thread(download_audio_url, seg.src, pre_path)
+                    try:
+                        os.unlink(pre_path)
+                    except OSError:
+                        pass
+                    if not ok:
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Async audio URL '{seg.src}' is unreachable.",
+                        )
+                elif seg.fallback_text:
                     fallback_seg = TextSegment(
                         seg.fallback_text, seg.voice, seg.speed, seg.temperature
                     )
@@ -1615,7 +1673,8 @@ async def openai_speech(req: OpenAIRequest, request: Request):
 
     try:
         t0 = time.time()
-        generated_paths = {}
+        generated_paths: dict[int, str] = {}
+        async_overlays: dict[int, tuple[str, float]] = {}
 
         # 1. Generate text segments
         for idx, seg in enumerate(segments):
@@ -1672,31 +1731,30 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                     conversion_success = await asyncio.to_thread(
                         convert_to_wav_matching, audio_file_path, dest_wav, sample_rate
                     )
-                    if conversion_success and os.path.exists(dest_wav):
-                        generated_paths[idx] = dest_wav
 
-                if not conversion_success:
-                    if seg.fallback_text:
-                        fallback_seg = TextSegment(
-                            seg.fallback_text, seg.voice, seg.speed, seg.temperature
-                        )
-                        seg_req = prepare_segment_request(
-                            request_dict, fallback_seg, caps, manifest
-                        )
-                        seg_dir = os.path.join(tmp_dir, f"fallback_{idx}")
-                        os.makedirs(seg_dir, exist_ok=True)
-                        seg_wav = await asyncio.to_thread(engine.generate, seg_req, seg_dir)
-                        generated_paths[idx] = seg_wav
-                    else:
-                        raise HTTPException(
-                            status_code=500,
-                            detail=(
-                                f"Failed to process SSML audio source '{seg.src}' "
-                                "and no fallback text was provided."
-                            ),
-                        )
+                if seg.async_play and conversion_success and os.path.exists(dest_wav):
+                    async_overlays[idx] = (dest_wav, seg.volume)
+                elif conversion_success and os.path.exists(dest_wav):
+                    generated_paths[idx] = dest_wav
+                elif seg.fallback_text:
+                    fallback_seg = TextSegment(
+                        seg.fallback_text, seg.voice, seg.speed, seg.temperature
+                    )
+                    seg_req = prepare_segment_request(request_dict, fallback_seg, caps, manifest)
+                    seg_dir = os.path.join(tmp_dir, f"fallback_{idx}")
+                    os.makedirs(seg_dir, exist_ok=True)
+                    seg_wav = await asyncio.to_thread(engine.generate, seg_req, seg_dir)
+                    generated_paths[idx] = seg_wav
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            f"Failed to process SSML audio source '{seg.src}' "
+                            "and no fallback text was provided."
+                        ),
+                    )
 
-        # 4. Merge all generated/processed segment files
+        # 4. Merge all sync segment files
         sorted_indices = sorted(generated_paths.keys())
         sorted_paths = [generated_paths[i] for i in sorted_indices]
 
@@ -1705,6 +1763,57 @@ async def openai_speech(req: OpenAIRequest, request: Request):
             shutil.copy2(sorted_paths[0], wav_path)
         else:
             merge_wav_files(sorted_paths, wav_path)
+
+        # 5. Mix async overlays into output
+        if async_overlays:
+            import numpy as np
+            import soundfile as sf
+
+            main_data, sr = sf.read(wav_path)
+            main_data = main_data.astype(np.float64)
+
+            frame_pos = 0
+            for idx, seg in enumerate(segments):
+                path = generated_paths.get(idx)
+                if path and os.path.exists(path):
+                    seg_frames = int(get_audio_duration(path) * sr)
+                elif isinstance(seg, SilenceSegment):
+                    seg_frames = int(seg.duration * sr)
+                else:
+                    seg_frames = 0
+
+                if idx in async_overlays:
+                    overlay_path, vol = async_overlays[idx]
+                    overlay_data, _ = sf.read(overlay_path)
+
+                    overlay_data = overlay_data.astype(np.float64) * vol
+
+                    if main_data.ndim > 1 and overlay_data.ndim == 1:
+                        overlay_data = np.tile(overlay_data[:, None], (1, main_data.shape[1]))
+                    elif main_data.ndim == 1 and overlay_data.ndim > 1:
+                        overlay_data = np.mean(overlay_data, axis=1)
+
+                    end = frame_pos + len(overlay_data)
+                    if end > len(main_data):
+                        pad_shape = (
+                            (end - len(main_data), main_data.shape[1])
+                            if main_data.ndim > 1
+                            else (end - len(main_data),)
+                        )
+                        main_data = np.concatenate(
+                            [main_data, np.zeros(pad_shape, dtype=np.float64)]
+                        )
+
+                    chunk = main_data[frame_pos : frame_pos + len(overlay_data)]
+                    if chunk.ndim > 1 and overlay_data.ndim == 1:
+                        overlay_data = np.tile(overlay_data[:, None], (1, chunk.shape[1]))
+                    main_data[frame_pos : frame_pos + len(overlay_data)] += overlay_data
+                    del overlay_data
+
+                frame_pos += seg_frames
+
+            np.clip(main_data, -1.0, 1.0, out=main_data)
+            sf.write(wav_path, main_data.astype(np.float32), sr)
 
         gen_time = time.time() - t0
         t1 = time.time()

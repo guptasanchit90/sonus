@@ -13,6 +13,16 @@ import soundfile as sf
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+
+def _sanitize_text(text: str) -> str:
+    text = re.sub(
+        r", (it|this|that|there|we|they|he|she|I|you)\b",
+        r" \1",
+        text,
+    )
+    return text
+
+
 _MLX_AVAILABLE = False
 try:
     import mlx.core as mx
@@ -121,7 +131,13 @@ _SPEAKERS: set[str] = {
 _speaker_embedding_cache: dict[str, mx.array] = {}
 _speaker_embedding_lock = threading.Lock()
 
-_model_cache = ModelCache(ttl=30, tag="qwen", on_evict=_speaker_embedding_cache.clear)
+
+def _clear_embeddings():
+    with _speaker_embedding_lock:
+        _speaker_embedding_cache.clear()
+
+
+_model_cache = ModelCache(ttl=30, tag="qwen", on_evict=_clear_embeddings)
 
 
 def _load_audio_for_embedding(audio_path: str):
@@ -374,6 +390,8 @@ class QwenEngine(BaseEngine):
             )
 
         try:
+            text = _sanitize_text(text)
+
             if mode == "custom":
                 generate_audio(
                     model=model,

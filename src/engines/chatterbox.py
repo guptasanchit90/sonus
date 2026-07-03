@@ -42,7 +42,13 @@ S3_TOKENIZER_DIR = os.path.join(MODELS_DIR, "s3_tokenizer")
 _MIN_REF_DURATION = 5.0
 
 
+_s3_tokenizer_patched = False
+
+
 def _patch_s3_tokenizer_hf():
+    global _s3_tokenizer_patched
+    if _s3_tokenizer_patched:
+        return True
     if not os.path.isdir(S3_TOKENIZER_DIR):
         return False
     try:
@@ -67,10 +73,13 @@ def _patch_s3_tokenizer_hf():
 
         huggingface_hub.snapshot_download = _patched_snapshot
         huggingface_hub.hf_hub_download = _patched_hf_download
+        _s3_tokenizer_patched = True
         return True
     except ImportError:
         return False
 
+
+_patch_s3_tokenizer_hf()  # Run once at import time, safe for concurrent requests
 
 _MODELS: dict[str, str] = {
     "chatterbox-turbo-fp16": "Chatterbox-Turbo-TTS-fp16",
@@ -252,7 +261,6 @@ class ChatterboxEngine(BaseEngine):
 
         t0 = time.time()
         try:
-            _patch_s3_tokenizer_hf()
             model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
         except HTTPException:
             raise

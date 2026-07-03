@@ -206,6 +206,13 @@ class KokoroEngine(BaseEngine):
                 detail="Cannot blend voices from different languages.",
             )
 
+        speed = request.get("speed_value", 1.0)
+        if speed < 0.25 or speed > 4.0:
+            raise HTTPException(
+                status_code=422,
+                detail="Speed must be between 0.25 and 4.0 for Kokoro.",
+            )
+
     def generate(self, request: dict, tmp_dir: str) -> str:
         voice = request.get("speaker_name") or "af_heart"
         speed = request["speed_value"]

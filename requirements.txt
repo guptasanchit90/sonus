@@ -11,7 +11,7 @@ piper-tts==1.4.1
 
 # ── MLX / Apple Silicon ───────────────────────────────────────────────────────
 mlx==0.30.3
-mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@9349644ccbd62eb10900852228f7b952c566def3
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git@9349644ccbd62eb10900852228f7b952c566def3  # Pin: avoid v0.4.4+ (broadcast_shapes regression)
 mlx-lm==0.30.5
 mlx-metal==0.30.3
 

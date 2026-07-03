@@ -16,9 +16,12 @@ try:
 except ImportError as exc:
     raise ImportError("fastapi is not installed. Run: pip install fastapi") from exc
 
+from src.cache import ModelCache
+
 from .base import BaseEngine, register
 
 MODELS_DIR = os.path.join(os.getcwd(), "models", "piper")
+_piper_cache = ModelCache(ttl=300, tag="piper")
 
 
 def _scan_voices() -> dict[str, str]:
@@ -103,11 +106,19 @@ class PiperEngine(BaseEngine):
                 ),
             )
 
+        speed_val = request.get("speed_value", 1.0)
+        if speed_val < 0.25 or speed_val > 5.0:
+            raise HTTPException(
+                status_code=422,
+                detail="Speed must be between 0.25 and 5.0 for Piper.",
+            )
+
     def generate(self, request: dict, tmp_dir: str) -> str:
         model = request["model"]
         text = request["text"]
         speed_val = request.get("speed_value", 1.0)
-        length_scale = 1.0 / max(speed_val, 0.25)
+        speed_val = max(0.25, min(speed_val, 5.0))
+        length_scale = 1.0 / speed_val
 
         voices = _scan_voices()
         onnx_path = voices.get(model)
@@ -118,7 +129,7 @@ class PiperEngine(BaseEngine):
             )
 
         try:
-            voice = PiperVoice.load(onnx_path)
+            voice = _piper_cache.get_or_load(onnx_path, lambda: PiperVoice.load(onnx_path))
         except Exception as e:
             print(f"[piper] Failed to load voice '{model}': {e}")
             raise HTTPException(

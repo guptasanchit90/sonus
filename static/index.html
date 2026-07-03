@@ -265,8 +265,8 @@
             </select>
             <select class="ssml-select" @change="onAudioSelect($event)" title="Insert SFX (Audio)">
               <option value="">+ SFX</option>
-              <optgroup label="Cloned Voices" v-if="allCloneableVoices.length">
-                <option v-for="v in allCloneableVoices" :value="'voices/' + v">{{ v }}</option>
+              <optgroup label="Sound Effects" v-if="allSFXFiles.length">
+                <option v-for="v in allSFXFiles" :value="v">{{ v }}</option>
               </optgroup>
               <option value="custom">Custom URL...</option>
             </select>
