@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -12,6 +13,8 @@ import soundfile as sf
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+logger = logging.getLogger("qwen")
 
 
 def _sanitize_text(text: str) -> str:
@@ -367,6 +370,14 @@ class QwenEngine(BaseEngine):
         speed = request["speed_value"]
         temperature = request["temperature"]
         text = request["text"]
+        voice_label = (
+            request.get("speaker_name")
+            or request.get("sample_voice_file")
+            or request.get("voice_description")
+            or ""
+        )
+        req_id = request.get("req_id", "")
+        segment = request.get("segment", "")
 
         resolved_path = _model_path(MODELS_DIR, model_name)
         if not resolved_path:
@@ -383,7 +394,7 @@ class QwenEngine(BaseEngine):
         except HTTPException:
             raise
         except Exception as e:
-            print(f"[qwen] Model load failed for '{model_name}': {e}")
+            logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
             raise HTTPException(
                 status_code=500,
                 detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
@@ -454,7 +465,10 @@ class QwenEngine(BaseEngine):
         except HTTPException:
             raise
         except Exception as e:
-            print(f"[qwen] Generation failed (mode={mode}): {e}")
+            logger.error(
+                "generation_failed req_id=%s segment=%s model=%s mode=%s voice=%s: %s",
+                req_id, segment, model_name, mode, voice_label, e,
+            )
             raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
         _model_cache.touch()
@@ -477,8 +491,8 @@ class QwenEngine(BaseEngine):
             sf.write(wav_path, np.concatenate(audio_parts), sr)
 
         elapsed = time.time() - t0
-        print(
-            f"[qwen] {model_name}: generate={elapsed:.2f}s "
-            f"| segments={len(segments)} | text_len={len(text)}"
+        logger.info(
+            "req_id=%s segment=%s model=%s voice=%s elapsed=%.2fs text_len=%d chunks=%d",
+            req_id, segment, model_name, voice_label, elapsed, len(text), len(segments),
         )
         return wav_path

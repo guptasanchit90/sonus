@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import warnings
@@ -8,6 +9,8 @@ import soundfile as sf
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+logger = logging.getLogger("chatterbox")
 
 _MLX_AVAILABLE = False
 try:
@@ -241,6 +244,9 @@ class ChatterboxEngine(BaseEngine):
         model_name = request["model"]
         temperature = request["temperature"]
         text = request["text"]
+        voice_file = request.get("sample_voice_file") or ""
+        req_id = request.get("req_id", "")
+        segment = request.get("segment", "")
 
         folder = _MODELS.get(model_name)
         if not folder:
@@ -265,14 +271,13 @@ class ChatterboxEngine(BaseEngine):
         except HTTPException:
             raise
         except Exception as e:
-            print(f"[chatterbox] Model load failed for '{model_name}': {e}")
+            logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
             raise HTTPException(
                 status_code=500,
                 detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
             )
 
         ref_audio = None
-        voice_file = request.get("sample_voice_file")
         if voice_file:
             ref_audio = resolve_voice(voice_file)
 
@@ -315,7 +320,10 @@ class ChatterboxEngine(BaseEngine):
         except HTTPException:
             raise
         except Exception as e:
-            print(f"[chatterbox] Generation failed for '{model_name}': {e}")
+            logger.error(
+                "generation_failed req_id=%s segment=%s model=%s voice=%s: %s",
+                req_id, segment, model_name, voice_file, e,
+            )
             raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
         _model_cache.touch()
@@ -324,5 +332,8 @@ class ChatterboxEngine(BaseEngine):
             raise HTTPException(status_code=500, detail="TTS produced no output file")
 
         elapsed = time.time() - t0
-        print(f"[chatterbox] {model_name}: generate={elapsed:.2f}s | text_len={len(text)}")
+        logger.info(
+            "req_id=%s segment=%s model=%s voice=%s elapsed=%.2fs text_len=%d",
+            req_id, segment, model_name, voice_file, elapsed, len(text),
+        )
         return wav_path

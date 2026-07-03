@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import shutil
 import sys
@@ -10,6 +11,8 @@ import urllib.parse
 import urllib.request
 import uuid
 import warnings
+
+logger = logging.getLogger("server")
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -566,10 +569,10 @@ async def _transcribe_voice(path: str, name: str):
                 txt_path = os.path.splitext(path)[0] + ".txt"
                 with open(txt_path, "w", encoding="utf-8") as fh:
                     fh.write(transcript)
-                print(f"[server] Transcribed voice '{name}' ({len(transcript)} chars)")
+                logger.info("transcribed_voice voice=%s text_len=%d", name, len(transcript))
             break
         except Exception as e:
-            print(f"[server] Auto-transcribe failed for '{name}' with {type(stt).__name__}: {e}")
+            logger.error("auto_transcribe_failed voice=%s stt=%s: %s", name, type(stt).__name__, e)
 
 
 @app.post("/voice", summary="Upload a voice file (any audio format)", tags=["voice-management"])
@@ -1513,7 +1516,7 @@ def download_audio_url(url: str, dest_path: str) -> bool:
                 shutil.copyfileobj(response, f)
         return True
     except Exception as e:
-        print(f"[server] Failed to download audio from {url}: {e}")
+        logger.error("audio_download_failed url=%s: %s", url, e)
         return False
 
 
@@ -1590,6 +1593,8 @@ async def openai_speech(req: OpenAIRequest, request: Request):
             request_dict["text"] = ssml_text
 
     engine = _find_engine(request_dict["model"])
+    req_id = uuid.uuid4().hex[:8]
+    request_dict["req_id"] = req_id
 
     effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
     request_dict["effective_seed"] = effective_seed
@@ -1677,9 +1682,13 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         async_overlays: dict[int, tuple[str, float]] = {}
 
         # 1. Generate text segments
+        total_text_segs = sum(1 for s in segments if isinstance(s, TextSegment))
+        text_seg_count = 0
         for idx, seg in enumerate(segments):
             if isinstance(seg, TextSegment):
+                text_seg_count += 1
                 seg_req = prepare_segment_request(request_dict, seg, caps, manifest)
+                seg_req["segment"] = f"{text_seg_count}/{total_text_segs}"
                 seg_dir = os.path.join(tmp_dir, f"seg_{idx}")
                 os.makedirs(seg_dir, exist_ok=True)
                 seg_wav = await asyncio.to_thread(engine.generate, seg_req, seg_dir)
@@ -1822,9 +1831,9 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         duration = get_audio_duration(wav_path)
         post_time = time.time() - t1
         total_time = time.time() - t0
-        print(
-            f"[server] {req.model}: gen={gen_time:.2f}s post={post_time:.2f}s "
-            f"total={total_time:.2f}s audio={duration:.1f}s"
+        logger.info(
+            "req_id=%s model=%s voice=%s gen=%.2fs post=%.2fs total=%.2fs audio=%.1fs",
+            req_id, req.model, req.voice, gen_time, post_time, total_time, duration,
         )
 
         save_output = request.headers.get("x-save-output", "false").lower() == "true"
@@ -1907,7 +1916,10 @@ async def openai_speech(req: OpenAIRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[server] Error in openai_speech ({req.model}): {e}")
+        logger.error(
+            "openai_speech_failed req_id=%s model=%s voice=%s: %s",
+            req_id, req.model, req.voice, e,
+        )
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

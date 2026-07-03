@@ -1,7 +1,14 @@
 import gc
+import logging
 import os
 import subprocess
 import warnings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(name)s] %(message)s",
+    force=True,
+)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)

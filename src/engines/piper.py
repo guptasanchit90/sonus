@@ -1,9 +1,13 @@
+import logging
 import os
+import time
 import warnings
 import wave
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
+
+logger = logging.getLogger("piper")
 
 try:
     from piper import PiperVoice
@@ -119,7 +123,10 @@ class PiperEngine(BaseEngine):
         speed_val = request.get("speed_value", 1.0)
         speed_val = max(0.25, min(speed_val, 5.0))
         length_scale = 1.0 / speed_val
+        req_id = request.get("req_id", "")
+        segment = request.get("segment", "")
 
+        t0 = time.time()
         voices = _scan_voices()
         onnx_path = voices.get(model)
         if not onnx_path:
@@ -131,7 +138,7 @@ class PiperEngine(BaseEngine):
         try:
             voice = _piper_cache.get_or_load(onnx_path, lambda: PiperVoice.load(onnx_path))
         except Exception as e:
-            print(f"[piper] Failed to load voice '{model}': {e}")
+            logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model, e)
             raise HTTPException(
                 status_code=500, detail=f"Failed to load Piper voice '{model}': {e}"
             )
@@ -142,7 +149,15 @@ class PiperEngine(BaseEngine):
             with wave.open(wav_path, "wb") as wav_file:
                 voice.synthesize_wav(text, wav_file, syn_config=syn_config)
         except Exception as e:
-            print(f"[piper] Synthesis failed for '{model}': {e}")
+            logger.error(
+                "synthesis_failed req_id=%s segment=%s model=%s: %s",
+                req_id, segment, model, e,
+            )
             raise HTTPException(status_code=500, detail=f"Piper synthesis failed: {e}")
 
+        elapsed = time.time() - t0
+        logger.info(
+            "req_id=%s segment=%s model=%s voice=%s elapsed=%.2fs text_len=%d",
+            req_id, segment, model, model, elapsed, len(text),
+        )
         return wav_path

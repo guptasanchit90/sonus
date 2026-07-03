@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import warnings
@@ -7,6 +8,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 import numpy as np
 import soundfile as sf
+
+logger = logging.getLogger("kokoro")
 
 try:
     from kokoro_onnx import Kokoro
@@ -219,6 +222,8 @@ class KokoroEngine(BaseEngine):
         text = request["text"]
         voices, weights = _parse_voices(voice)
         lang = _lang_for_voice(voices[0])
+        req_id = request.get("req_id", "")
+        segment = request.get("segment", "")
 
         t0 = time.time()
         try:
@@ -252,7 +257,10 @@ class KokoroEngine(BaseEngine):
                 lang=lang,
             )
         except Exception as e:
-            print(f"[kokoro] Generation failed: {e}")
+            logger.error(
+                "generation_failed req_id=%s segment=%s model=%s voice=%s: %s",
+                req_id, segment, MODEL_ID, voice, e,
+            )
             raise HTTPException(status_code=500, detail=f"Kokoro generation failed: {e}")
 
         _kokoro_cache.touch()
@@ -265,5 +273,8 @@ class KokoroEngine(BaseEngine):
             raise HTTPException(status_code=500, detail=f"Failed to write WAV: {e}")
 
         elapsed = time.time() - t0
-        print(f"[kokoro] generate={elapsed:.2f}s | text_len={len(text)}")
+        logger.info(
+            "req_id=%s segment=%s model=%s voice=%s elapsed=%.2fs text_len=%d",
+            req_id, segment, MODEL_ID, voice, elapsed, len(text),
+        )
         return wav_path

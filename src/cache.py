@@ -1,3 +1,4 @@
+import logging
 import threading
 from typing import Callable, Generic, TypeVar
 
@@ -15,6 +16,7 @@ class ModelCache(Generic[T]):
     ):
         self._ttl = ttl
         self._tag = tag
+        self._logger = logging.getLogger(tag or "cache")
         self._on_evict = on_evict
         self._model: T | None = None
         self._key: str | None = None
@@ -27,11 +29,11 @@ class ModelCache(Generic[T]):
                 old_model = self._model
                 old_key = self._key
                 self._evict_unlocked()
-                print(f"[{self._tag}] Loading model '{key}'")
+                self._logger.info("Loading model '%s'", key)
                 try:
                     model = loader()
                 except Exception:
-                    print(f"[{self._tag}] Failed to load model '{key}'; rolling back cache state")
+                    self._logger.error("Failed to load model '%s'; rolling back cache state", key)
                     self._model = old_model
                     self._key = old_key
                     if old_model is not None:
@@ -40,7 +42,7 @@ class ModelCache(Generic[T]):
                 self._model = model
                 self._key = key
             else:
-                print(f"[{self._tag}] Using cached model '{key}'")
+                self._logger.debug("Using cached model '%s'", key)
             self._reschedule()
             assert self._model is not None
             return self._model
@@ -59,7 +61,7 @@ class ModelCache(Generic[T]):
 
     def _evict_unlocked(self) -> None:
         if self._model is not None:
-            print(f"[{self._tag}] Evicting cached model '{self._key}' after {self._ttl}s idle")
+            self._logger.info("Evicting cached model '%s' after %ds idle", self._key, self._ttl)
             if self._on_evict:
                 self._on_evict()
             del self._model
