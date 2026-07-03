@@ -43,7 +43,7 @@ from src.audio import (
     wav_to_pcm,
 )
 from src.engines.base import discover as discover_tts
-from src.mcp_server import create_sse_app
+from src.mcp_server import create_mcp_handler, mcp_lifespan
 from src.presets import presets_router
 from src.ssml import needs_ssml, to_ssml
 from src.stt.base import discover as discover_stt
@@ -1833,7 +1833,13 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         total_time = time.time() - t0
         logger.info(
             "req_id=%s model=%s voice=%s gen=%.2fs post=%.2fs total=%.2fs audio=%.1fs",
-            req_id, req.model, req.voice, gen_time, post_time, total_time, duration,
+            req_id,
+            req.model,
+            req.voice,
+            gen_time,
+            post_time,
+            total_time,
+            duration,
         )
 
         save_output = request.headers.get("x-save-output", "false").lower() == "true"
@@ -1918,7 +1924,10 @@ async def openai_speech(req: OpenAIRequest, request: Request):
     except Exception as e:
         logger.error(
             "openai_speech_failed req_id=%s model=%s voice=%s: %s",
-            req_id, req.model, req.voice, e,
+            req_id,
+            req.model,
+            req.voice,
+            e,
         )
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
     finally:
@@ -1943,8 +1952,10 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         )
 
 
-mcp_app = create_sse_app()
-app.mount("/mcp", mcp_app, name="mcp")
+mcp_handler = create_mcp_handler()
+app.add_route("/mcp", route=mcp_handler, include_in_schema=False)
+app.add_route("/mcp/", route=mcp_handler, include_in_schema=False)
+app.router.lifespan_context = mcp_lifespan
 
 app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 

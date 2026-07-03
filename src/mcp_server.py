@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
-from starlette.applications import Starlette
 from starlette.routing import Route
 
 import src.engines  # noqa: F401
@@ -345,24 +344,25 @@ def suggest_voice_for_character(
 
 
 # ---------------------------------------------------------------------------
-# SSE transport — mountable Starlette app
+# Streamable HTTP transport — mountable Starlette app
 # ---------------------------------------------------------------------------
 
-_MCP_MESSAGE_PATH = "/mcp/messages"
+
+def create_mcp_handler():
+    mcp.settings.streamable_http_path = "/mcp"
+    sec = mcp.settings.transport_security
+    if sec is not None:
+        sec.enable_dns_rebinding_protection = False
+    app = mcp.streamable_http_app()
+    route = app.routes[0]
+    assert isinstance(route, Route)
+    return route.app
 
 
-def create_sse_app() -> Starlette:
-    sse = SseServerTransport(_MCP_MESSAGE_PATH)
-
-    async def handle_sse(request):
-        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-            await mcp._mcp_server.run(
-                streams[0], streams[1], mcp._mcp_server.create_initialization_options()
-            )
-
-    return Starlette(
-        routes=[
-            Route("/sse", endpoint=handle_sse),
-            Route("/messages", endpoint=sse.handle_post_message, methods=["POST"]),
-        ]
-    )
+@contextlib.asynccontextmanager
+async def mcp_lifespan(app):
+    if mcp._session_manager is not None:
+        async with mcp._session_manager.run():
+            yield
+    else:
+        yield
