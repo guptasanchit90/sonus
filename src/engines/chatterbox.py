@@ -25,12 +25,14 @@ except ImportError as exc:
 
 from src.cache import ModelCache
 from src.utils import (
-    VOICES_DIR,
     SAMPLE_RATE,
+    VOICES_DIR,
     get_audio_duration,
-    model_path as _model_path,
     resolve_voice,
     scan_wav_voices,
+)
+from src.utils import (
+    model_path as _model_path,
 )
 
 from .base import BaseEngine, register

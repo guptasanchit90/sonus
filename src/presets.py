@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import time
 
 from fastapi import APIRouter, HTTPException
@@ -29,12 +28,15 @@ def _list_presets() -> list[dict]:
         except (json.JSONDecodeError, OSError):
             continue
         config = data.get("config", {})
-        presets.append({
-            "name": data.get("name", fname[:-5]),
-            "created_at": data.get("created_at", 0),
-            "updated_at": data.get("updated_at", 0),
-            "preview": _build_preview(config),
-        })
+        presets.append(
+            {
+                "name": data.get("name", fname[:-5]),
+                "description": data.get("description", ""),
+                "created_at": data.get("created_at", 0),
+                "updated_at": data.get("updated_at", 0),
+                "preview": _build_preview(config),
+            }
+        )
     presets.sort(key=lambda p: p["updated_at"], reverse=True)
     return presets
 
@@ -77,11 +79,16 @@ def _save_preset(name: str, data: dict):
 
 class PresetSaveBody(BaseModel):
     name: str = ""
+    description: str = ""
     config: dict
 
 
 class PresetRenameBody(BaseModel):
     new_name: str
+
+
+class PresetUpdateBody(BaseModel):
+    description: str = ""
 
 
 @presets_router.get("/presets", summary="List all presets")
@@ -109,6 +116,7 @@ def save_preset(body: PresetSaveBody):
     now = time.time()
     data = {
         "name": name,
+        "description": body.description.strip() if body.description else "",
         "created_at": now,
         "updated_at": now,
         "config": body.config,
@@ -135,6 +143,15 @@ def rename_preset(name: str, body: PresetRenameBody):
     os.remove(old_path)
     _save_preset(new_name, data)
     return {"name": new_name, "presets": _list_presets()}
+
+
+@presets_router.put("/presets/{name:path}/description", summary="Update preset description")
+def update_preset_description(name: str, body: PresetUpdateBody):
+    data = _load_preset(name)
+    data["description"] = body.description.strip() if body.description else ""
+    data["updated_at"] = time.time()
+    _save_preset(name, data)
+    return {"name": name, "description": data["description"]}
 
 
 @presets_router.delete("/presets/{name:path}", summary="Delete a preset")

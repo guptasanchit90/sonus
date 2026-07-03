@@ -19,6 +19,7 @@ except ImportError as exc:
     raise ImportError("fastapi is not installed. Run: pip install fastapi") from exc
 
 from src.cache import ModelCache
+
 from .base import BaseEngine, register
 
 MODELS_DIR = os.path.join(os.getcwd(), "models", "kokoro")
@@ -141,38 +142,6 @@ def _lang_for_voice(voice: str) -> str:
     return _LANG_MAP.get(prefix, "en-us")
 
 
-def _add_pauses(text: str, sample_rate: int) -> np.ndarray:
-    PAUSE_MAP = {
-        ".": 0.5,
-        "...": 1.2,
-        "?": 0.5,
-        "!": 0.6,
-        ",": 0.2,
-        ";": 0.3,
-    }
-    newline_pause = 0.4
-
-    total_silence = 0.0
-    i = 0
-    while i < len(text):
-        matched = False
-        for punct in sorted(PAUSE_MAP.keys(), key=len, reverse=True):
-            if text[i:].startswith(punct):
-                total_silence += PAUSE_MAP[punct]
-                i += len(punct)
-                matched = True
-                break
-        if not matched:
-            if text[i] == "\n":
-                total_silence += newline_pause
-            i += 1
-
-    if total_silence <= 0:
-        return np.array([], dtype=np.float32)
-
-    return np.zeros(int(sample_rate * total_silence), dtype=np.float32)
-
-
 @register
 class KokoroEngine(BaseEngine):
     @property
@@ -241,8 +210,6 @@ class KokoroEngine(BaseEngine):
         voice = request.get("speaker_name") or "af_heart"
         speed = request["speed_value"]
         text = request["text"]
-        add_pauses = request.get("add_pauses", True)
-
         voices, weights = _parse_voices(voice)
         lang = _lang_for_voice(voices[0])
 
@@ -282,12 +249,7 @@ class KokoroEngine(BaseEngine):
             raise HTTPException(status_code=500, detail=f"Kokoro generation failed: {e}")
 
         _kokoro_cache.touch()
-
         samples = np.array(samples)
-        if add_pauses:
-            pause_samples = _add_pauses(text, sample_rate)
-            if len(pause_samples) > 0:
-                samples = np.concatenate([samples, pause_samples])
 
         wav_path = os.path.join(tmp_dir, "audio_000.wav")
         try:

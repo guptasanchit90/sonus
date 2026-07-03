@@ -21,7 +21,7 @@ const store = reactive({
     speed: 1.0,
     temperature: 0,
     seed: null,
-    add_pauses: true,
+    auto_ssml: true,
     exaggeration: 0.1,
     cfg_weight: 0.0,
   },

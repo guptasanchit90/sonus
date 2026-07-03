@@ -94,7 +94,7 @@ Drop-in replacement for [OpenAI's TTS endpoint](https://platform.openai.com/docs
 | `voice` | string | `null` | Maps to `speaker_name`, `voice_description`, or `sample_voice_file` |
 | `response_format` | string | `"mp3"` | `mp3` · `wav` · `pcm` |
 | `speed` | number | `1.0` | `0.25` – `4.0` |
-| `add_pauses` | boolean | `true` | Insert short pauses after punctuation (Kokoro, Piper) |
+| `x-auto-ssml` | header | `true` | Auto-convert plain text to SSML chunks when text ≥ 300 chars |
 
 ### How `voice` maps
 

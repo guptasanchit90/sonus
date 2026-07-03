@@ -13,7 +13,7 @@
 - **Model listing** — `?extras=true` for full details, `?available_only` filtering
 - **Web UI** — E2E validation workflow, batch generation across engines, install modal
 - **Kokoro voice blending** — comma-separated voices with optional weights
-- **Kokoro `add_pauses`** — punctuation-based silence insertion
+- **Kokoro `add_pauses` removed** — replaced by auto-SSML chunking
 - **Qwen 4bit Base model** — `qwen-clone` alias for 1.7B-Base-4bit (~1.6 GB)
 - **Qwen Lite Voice Design** — `qwen-lite-voice` (0.6B-VoiceDesign-8bit)
 - **Speaker embedding caching** — Qwen voice cloning performance optimization

@@ -1,6 +1,6 @@
 import os
-import wave
 import warnings
+import wave
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)

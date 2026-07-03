@@ -40,7 +40,9 @@ from src.audio import (
     wav_to_pcm,
 )
 from src.engines.base import discover as discover_tts
+from src.mcp_server import create_sse_app
 from src.presets import presets_router
+from src.ssml import needs_ssml, to_ssml
 from src.stt.base import discover as discover_stt
 from src.utils import (
     SFX_DIR,
@@ -49,6 +51,7 @@ from src.utils import (
     get_audio_duration,
     resolve_voice,
 )
+from src.voice_descriptions import get_voice_description
 
 TTS_ENGINES = discover_tts()
 STT_ENGINES = discover_stt()
@@ -72,6 +75,25 @@ SPEED_MAP = {
 
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(SFX_DIR, exist_ok=True)
+os.makedirs(VOICES_DIR, exist_ok=True)
+
+_VOICE_META_FILE = os.path.join(VOICES_DIR, ".metadata.json")
+
+
+def _load_voice_metadata() -> dict[str, dict]:
+    if os.path.exists(_VOICE_META_FILE):
+        try:
+            with open(_VOICE_META_FILE) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_voice_metadata(meta: dict[str, dict]):
+    with open(_VOICE_META_FILE, "w") as f:
+        json.dump(meta, f, indent=2, default=str)
+
 
 app = FastAPI(
     title="Sonus",
@@ -158,7 +180,6 @@ class OpenAIRequest(BaseModel):
     voice: str | None = None
     response_format: str = "mp3"
     speed: float = 1.0
-    add_pauses: bool = True
     temperature: float | None = None
     exaggeration: float | None = None
     cfg_weight: float | None = None
@@ -442,7 +463,6 @@ def _openai_to_internal(req: OpenAIRequest, manifest: dict) -> dict:
         "speed_value": req.speed,
         "temperature": req.temperature if req.temperature is not None else 0.7,
         "seed": None,
-        "add_pauses": req.add_pauses,
         "speaker_name": None,
         "voice_description": None,
         "sample_voice_file": None,
@@ -520,7 +540,11 @@ class StageUrlRequest(BaseModel):
 
 
 @app.post("/voice", summary="Upload a voice file (any audio format)", tags=["voice-management"])
-async def upload_voice(file: UploadFile = File(...), name: str | None = Form(None)):
+async def upload_voice(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    description: str | None = Form(None),
+):
     content = await file.read()
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(
@@ -570,12 +594,19 @@ async def upload_voice(file: UploadFile = File(...), name: str | None = Form(Non
     created_at = os.path.getmtime(target)
     url = f"/voice/{safe_name}"
 
+    if description:
+        meta = _load_voice_metadata()
+        meta[safe_name] = meta.get(safe_name, {})
+        meta[safe_name]["description"] = description
+        _save_voice_metadata(meta)
+
     return {
         "name": safe_name,
         "duration": round(duration, 1),
         "size": size,
         "created_at": created_at,
         "url": url,
+        "description": description or "",
     }
 
 
@@ -587,7 +618,11 @@ STAGE_DIR = os.path.join(VOICES_DIR, ".staging")
     summary="Upload a voice file to staging (preview before save)",
     tags=["voice-management"],
 )
-async def stage_voice(file: UploadFile = File(...), name: str | None = Form(None)):
+async def stage_voice(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    description: str | None = Form(None),
+):
     content = await file.read()
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(
@@ -629,14 +664,22 @@ async def stage_voice(file: UploadFile = File(...), name: str | None = Form(None
     duration = get_audio_duration(target)
     size = os.path.getsize(target)
     created_at = os.path.getmtime(target)
-    url = f"/voice/stage/{safe_name}"
+
+    meta = _load_voice_metadata()
+    stage_key = f".staging/{safe_name}"
+    if description:
+        meta[stage_key] = meta.get(stage_key, {})
+        meta[stage_key]["description"] = description
+    elif stage_key in meta:
+        meta.pop(stage_key)
+    _save_voice_metadata(meta)
 
     return {
         "name": safe_name,
         "duration": round(duration, 1),
         "size": size,
         "created_at": created_at,
-        "url": url,
+        "url": f"/voice/stage/{safe_name}",
     }
 
 
@@ -783,6 +826,14 @@ def save_stage_voice(name: str):
 
     shutil.move(stage_path, target)
 
+    meta = _load_voice_metadata()
+    if safe in meta:
+        meta.pop(safe)
+    stage_meta_key = f".staging/{safe}"
+    if stage_meta_key in meta:
+        meta[safe] = meta.pop(stage_meta_key)
+        _save_voice_metadata(meta)
+
     duration = get_audio_duration(target)
     size = os.path.getsize(target)
     created_at = os.path.getmtime(target)
@@ -809,7 +860,7 @@ def get_voice(name: str):
 
 
 @app.put("/voice/{name:path}", summary="Rename a voice file", tags=["voice-management"])
-def rename_voice(name: str, new_name: str):
+def rename_voice(name: str, new_name: str, description: str | None = None):
     path = resolve_voice(name)
     if not path:
         raise HTTPException(status_code=404, detail=f"Voice '{name}' not found")
@@ -824,6 +875,14 @@ def rename_voice(name: str, new_name: str):
     new_path = os.path.join(VOICES_DIR, safe_new)
     if os.path.exists(new_path):
         raise HTTPException(status_code=409, detail=f"Voice '{safe_new}' already exists")
+
+    old_name = os.path.basename(path)
+    meta = _load_voice_metadata()
+    if old_name in meta:
+        meta[safe_new] = meta.pop(old_name)
+    if description is not None:
+        meta.setdefault(safe_new, {})["description"] = description
+        _save_voice_metadata(meta)
 
     os.rename(path, new_path)
     old_emb = path + ".npy"
@@ -844,6 +903,11 @@ def delete_voice(name: str):
     embedding = path + ".npy"
     if os.path.exists(embedding):
         os.remove(embedding)
+    vfile = os.path.basename(path)
+    meta = _load_voice_metadata()
+    if vfile in meta:
+        del meta[vfile]
+        _save_voice_metadata(meta)
     return {"deleted": name}
 
 
@@ -868,8 +932,7 @@ async def upload_sfx(file: UploadFile = File(...), name: str | None = Form(None)
 
     stem = name if name else (file.filename or "sfx")
     stem = (
-        "".join(c for c in stem.rsplit(".", 1)[0] if c.isalnum() or c in "-_.").rstrip(".")
-        or "sfx"
+        "".join(c for c in stem.rsplit(".", 1)[0] if c.isalnum() or c in "-_.").rstrip(".") or "sfx"
     )
     safe_name = stem + ".wav"
 
@@ -1317,7 +1380,8 @@ def get_v1_model(model_id: str, extras: bool = False):
     summary="List all voices (OpenAI-compatible)",
     tags=["models-and-voices"],
 )
-def list_v1_voices():
+def list_v1_voices(model_id: str | None = None):
+    voice_meta = _load_voice_metadata()
     data = []
     seen_cloneable = set()
     for engine in TTS_ENGINES:
@@ -1337,9 +1401,22 @@ def list_v1_voices():
                     if item in seen_cloneable:
                         continue
                     seen_cloneable.add(item)
-                entry = {"id": item, "engine": engine_name, "category": category}
+                entry: dict = {"id": item, "engine": engine_name, "category": category}
                 if language:
                     entry["language"] = language
+
+                desc = get_voice_description(engine_name, item)
+                if desc:
+                    entry["gender"] = desc.get("gender")
+                    entry["age_tier"] = desc.get("age_tier")
+                    entry["tone_tags"] = desc.get("tone_tags", [])
+                    entry["quality_grade"] = desc.get("quality_grade")
+                    entry["description"] = desc.get("description")
+                elif category == "cloneable":
+                    vmeta = voice_meta.get(item, {})
+                    if vmeta.get("description"):
+                        entry["description"] = vmeta["description"]
+
                 if category == "cloneable":
                     path = os.path.join(VOICES_DIR, item)
                     if os.path.exists(path):
@@ -1404,6 +1481,17 @@ def download_audio_url(url: str, dest_path: str) -> bool:
 
 
 @app.post(
+    "/v1/preview-ssml", summary="Preview auto-SSML conversion", tags=["text-to-speech"]
+)
+def preview_ssml(text: str = Body(..., embed=True)):
+    try:
+        result = to_ssml(text)
+        return PlainTextResponse(result, media_type="application/xml")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
     "/v1/audio/speech", summary="Generate speech (OpenAI-compatible)", tags=["text-to-speech"]
 )
 async def openai_speech(req: OpenAIRequest, request: Request):
@@ -1427,6 +1515,13 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         raise HTTPException(status_code=422, detail=detail)
 
     request_dict = _openai_to_internal(req, manifest)
+
+    auto_ssml = request.headers.get("x-auto-ssml", "true").lower() == "true"
+    if auto_ssml and not req.input.strip().startswith("<speak"):
+        if needs_ssml(req.input):
+            ssml_text = to_ssml(req.input)
+            req.input = ssml_text
+            request_dict["text"] = ssml_text
 
     engine = _find_engine(request_dict["model"])
 
@@ -1706,6 +1801,9 @@ async def openai_speech(req: OpenAIRequest, request: Request):
             },
         )
 
+
+mcp_app = create_sse_app()
+app.mount("/mcp", mcp_app, name="mcp")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 

@@ -313,7 +313,7 @@ comps['preset-panel'] = {
           if (cfg.speed != null) f.speed = Math.min(4, Math.max(0.25, parseFloat(cfg.speed)));
           if (cfg.temperature != null) f.temperature = parseFloat(cfg.temperature);
           if (cfg.seed !== undefined) f.seed = cfg.seed;
-          if (cfg.add_pauses !== undefined) f.add_pauses = !!cfg.add_pauses;
+          if (cfg.auto_ssml !== undefined) f.auto_ssml = !!cfg.auto_ssml;
           if (cfg.exaggeration != null) f.exaggeration = parseFloat(cfg.exaggeration);
           if (cfg.cfg_weight != null) f.cfg_weight = parseFloat(cfg.cfg_weight);
           if (cfg.blendMode !== undefined) this.$store.blendMode = !!cfg.blendMode;
@@ -517,7 +517,6 @@ comps['generate-form'] = {
         body.temperature = parseFloat(this.$store.form.temperature);
       }
       if (this.$store.form.seed) body.seed = parseInt(this.$store.form.seed, 10);
-      body.add_pauses = this.$store.form.add_pauses;
       if (caps.includes('emotion')) {
         body.exaggeration = parseFloat(this.$store.form.exaggeration);
         body.cfg_weight = parseFloat(this.$store.form.cfg_weight);
@@ -527,6 +526,7 @@ comps['generate-form'] = {
         'curl -X POST http://localhost:8000/v1/audio/speech \\',
         '  -H "Content-Type: application/json" \\',
         '  -H "X-Save-Output: true" \\',
+        '  -H "x-auto-ssml: true" \\',
         "  -d '" + json.replace(/'/g, "'\\''") + "' \\",
         '  --output speech.mp3',
       ].join('\n');
@@ -647,7 +647,7 @@ comps['generate-form'] = {
         parts.push('Exagg ' + Number(f.exaggeration).toFixed(2));
         parts.push('CFG ' + Number(f.cfg_weight).toFixed(2));
       }
-      if (this.modelEngine === 'kokoro' && f.add_pauses) parts.push('Pauses');
+      if (f.auto_ssml && this.$store.form.text.length >= 300) parts.push('Auto-SSML');
       if (this.$store.e2eEnabled) parts.push('STT on');
       return parts.length ? '— ' + parts.join(' · ') : '';
     },
@@ -865,6 +865,35 @@ comps['generate-form'] = {
       this.$store.blendSelections = obj;
       this._normalizeBlendWeights();
     },
+    async convertToSSML() {
+      const text = this.$store.form.text.trim();
+      if (!text) return;
+      try {
+        const resp = await fetch('/v1/preview-ssml', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        this.$store.form.text = await resp.text();
+      } catch (e) {
+        this.genStatus = 'SSML conversion failed: ' + e.message;
+        this.genStatusClass = 'error';
+      }
+    },
+    stripSSML() {
+      const text = this.$store.form.text.trim();
+      if (!text.startsWith('<speak')) return;
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'application/xml');
+        const plain = doc.body?.textContent || doc.documentElement?.textContent || '';
+        this.$store.form.text = plain.trim().replace(/\s+/g, ' ');
+      } catch (e) {
+        this.genStatus = 'Failed to strip SSML: ' + e.message;
+        this.genStatusClass = 'error';
+      }
+    },
     async onSubmit() {
       const m = this.$store.form.model;
       const t = this.$store.form.text.trim();
@@ -901,7 +930,6 @@ comps['generate-form'] = {
         body.temperature = parseFloat(this.$store.form.temperature);
       }
       if (this.$store.form.seed) body.seed = parseInt(this.$store.form.seed, 10);
-      body.add_pauses = this.$store.form.add_pauses;
       if (caps.includes('emotion')) {
         body.exaggeration = parseFloat(this.$store.form.exaggeration);
         body.cfg_weight = parseFloat(this.$store.form.cfg_weight);
@@ -914,7 +942,11 @@ comps['generate-form'] = {
       try {
         const resp = await fetch('/v1/audio/speech', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Save-Output': 'true' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Save-Output': 'true',
+            'x-auto-ssml': String(this.$store.form.auto_ssml),
+          },
           body: JSON.stringify(body),
         });
         if (!resp.ok) {
@@ -936,9 +968,10 @@ comps['generate-form'] = {
             if (out.params && out.params.e2e) continue;
             const origText = out.params && out.params.input;
             if (!origText) continue;
+            const plainText = origText.replace(/<[^>]+>/g, '').trim().replace(/\s+/g, ' ');
             try {
               const transResult = await this._transcribeOne(out.url, sttModel, e2eLang);
-              const similarity = this._wer(origText, transResult.text);
+              const similarity = this._wer(plainText, transResult.text);
               const e2eData = {
                 e2e: {
                   stt_model: sttModel,
@@ -1077,7 +1110,6 @@ comps['generate-form'] = {
           voice: item.voice,
           speed: parseFloat(this.$store.form.speed),
           temperature: parseFloat(this.$store.form.temperature),
-          add_pauses: this.$store.form.add_pauses,
         };
         if (this.$store.form.seed) body.seed = parseInt(this.$store.form.seed, 10);
 
@@ -1089,6 +1121,7 @@ comps['generate-form'] = {
               'X-Save-Output': 'true',
               'X-Batch-Id': batchId,
               'X-Batch-Seq': String(i),
+              'x-auto-ssml': String(this.$store.form.auto_ssml),
             },
             body: JSON.stringify(body),
           });
@@ -1126,9 +1159,10 @@ comps['generate-form'] = {
           if (out.params && out.params.batch_id !== batchId) continue;
           const origText = out.params && out.params.input;
           if (!origText) continue;
+          const plainText = origText.replace(/<[^>]+>/g, '').trim().replace(/\s+/g, ' ');
           try {
             const transResult = await this._transcribeOne(out.url, sttModel, e2eLang);
-            const similarity = this._wer(origText, transResult.text);
+            const similarity = this._wer(plainText, transResult.text);
             const e2eData = {
               e2e: {
                 stt_model: sttModel,
@@ -1685,7 +1719,7 @@ comps['save-preset-modal'] = {
         speed: s.form.speed,
         temperature: s.form.temperature,
         seed: s.form.seed,
-        add_pauses: s.form.add_pauses,
+        auto_ssml: s.form.auto_ssml,
         exaggeration: s.form.exaggeration,
         cfg_weight: s.form.cfg_weight,
         blendMode: s.blendMode,
@@ -1760,7 +1794,7 @@ comps['confirm-reset-modal'] = {
           speed: 1.0,
           temperature: 0,
           seed: null,
-          add_pauses: true,
+          auto_ssml: true,
           exaggeration: 0.1,
           cfg_weight: 0.0,
         });
@@ -1829,7 +1863,6 @@ comps['curl-console'] = {
         body.temperature = parseFloat(store.form.temperature);
       }
       if (store.form.seed) body.seed = parseInt(store.form.seed, 10);
-      body.add_pauses = store.form.add_pauses;
       if (caps.includes('emotion')) {
         body.exaggeration = parseFloat(store.form.exaggeration);
         body.cfg_weight = parseFloat(store.form.cfg_weight);
@@ -1840,6 +1873,7 @@ comps['curl-console'] = {
         'curl -X POST http://localhost:8000/v1/audio/speech \\',
         '  -H "Content-Type: application/json" \\',
         '  -H "X-Save-Output: true" \\',
+        '  -H "x-auto-ssml: true" \\',
         "  -d '" + json.replace(/'/g, "'\\''") + "' \\",
         '  --output speech.mp3',
       ].join('\n');
@@ -1880,6 +1914,7 @@ comps['add-voice-modal'] = {
       activeTab: 'upload',
       uploadFile: null,
       uploadName: '',
+      uploadDescription: '',
       uploadStatus: '',
       uploadStatusClass: '',
       recordName: '',
@@ -1931,6 +1966,7 @@ comps['add-voice-modal'] = {
         const fd = new FormData();
         fd.append('file', file);
         if (this.uploadName.trim()) fd.append('name', this.uploadName.trim());
+        if (this.uploadDescription.trim()) fd.append('description', this.uploadDescription.trim());
         const resp = await fetch('/voice/stage', { method: 'POST', body: fd });
         const data = await resp.json();
         if (!resp.ok) {
@@ -1942,6 +1978,7 @@ comps['add-voice-modal'] = {
         this.uploadStatus = '';
         this.uploadFile = null;
         this.uploadName = '';
+        this.uploadDescription = '';
       } catch (err) {
         this.uploadStatus = 'Network error: ' + err.message;
         this.uploadStatusClass = 'error';

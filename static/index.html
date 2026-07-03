@@ -276,6 +276,20 @@
           </div>
           <textarea id="text" v-model="$store.form.text" placeholder="Enter text to synthesize..." required></textarea>
           <div class="ssml-validation-error" v-if="ssmlValidationError">{{ ssmlValidationError }}</div>
+          <div style="margin-top:0.25rem;display:flex;gap:0.4rem">
+            <button
+              v-if="$store.form.auto_ssml && $store.form.text.length >= 300 && !$store.form.text.trim().startsWith('<speak')"
+              type="button"
+              class="btn btn-sm"
+              @click="convertToSSML"
+            >To SSML</button>
+            <button
+              v-if="$store.form.text.trim().startsWith('<speak')"
+              type="button"
+              class="btn btn-sm"
+              @click="stripSSML"
+            >To Plain</button>
+          </div>
         </div>
 
         <template v-if="!$store.batchMode">
@@ -479,9 +493,9 @@
                 <div class="voice-hint">&gt; 0.5 may truncate</div>
               </div>
             </div>
-            <div class="checkbox-group" v-if="modelEngine === 'kokoro'" style="margin-top:0.25rem">
-              <input type="checkbox" id="adv_add_pauses" v-model="$store.form.add_pauses">
-              <label for="adv_add_pauses">Punctuation pauses</label>
+            <div class="checkbox-group" style="margin-top:0.25rem">
+              <input type="checkbox" id="adv_auto_ssml" v-model="$store.form.auto_ssml">
+              <label for="adv_auto_ssml">Auto-SSML (chunk long text)</label>
             </div>
             <div class="e2e-section">
               <div class="checkbox-group">
@@ -840,6 +854,11 @@
               </div>
               <div class="upload-name-row">
                 <input type="text" id="voice-name" v-model="uploadName" placeholder="Voice name (optional, defaults to filename)">
+              </div>
+              <div style="margin-top:8px;">
+                <textarea id="voice-desc-upload" v-model="uploadDescription" placeholder="How does this voice sound? (optional) e.g. Deep, authoritative male with a British accent" rows="2" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-alt);color:var(--fg);font-size:13px;resize:vertical;"></textarea>
+              </div>
+              <div class="upload-name-row" style="margin-top:8px;">
                 <button type="submit" class="btn" id="upload-btn">Upload</button>
               </div>
               <div class="status-msg" :class="uploadStatusClass" v-if="uploadStatus">{{ uploadStatus }}</div>
@@ -1239,6 +1258,8 @@
       </div>
     </div>
   </div>
+
+
 </script>
 
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>

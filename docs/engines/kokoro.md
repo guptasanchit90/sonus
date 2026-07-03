@@ -106,9 +106,9 @@ Default weight is `0.5` if omitted. Use the `voice_blend` capability via the `"v
 
 ---
 
-## Pauses
+## Auto-SSML
 
-Set `add_pauses` to `true` (default) to insert short silences after punctuation (periods, commas, question marks). Set to `false` for continuous speech.
+When `x-auto-ssml: true` (default) and input text is ≥ 300 characters, plain text is automatically converted to SSML `<speak>` with `<p>` (paragraph) and `<s>` (sentence) chunks. This improves quality by keeping each chunk in Kokoro's 100–200 token sweet spot. Send `x-auto-ssml: false` to bypass.
 
 ---
 
