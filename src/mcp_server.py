@@ -21,6 +21,7 @@ STT_ENGINES = discover_stt()
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "server")
 
 mcp = FastMCP("sonus")
+import logging; logging.getLogger("mcp").setLevel(logging.WARNING)
 
 
 def _build_manifest(*, available_only: bool = False) -> dict[str, dict]:
