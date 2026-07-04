@@ -94,27 +94,15 @@ Tools are actions an LLM can invoke. Sonus provides these:
 
 ### `list_models`
 
-Filter and search TTS models.
+List all TTS models. No parameters.
 
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `engine` | string | `""` | Filter by engine name (e.g. `kokoro`, `qwen`) |
-| `capability` | string | `""` | Filter by capability (e.g. `speaker`, `voice_clone`, `voice_prompt`) |
-| `mode` | string | `""` | Filter by mode (e.g. `speaker`, `design`, `clone`) |
-| `available_only` | bool | `false` | Show only locally available models |
-| `query` | string | `""` | Text search across model ID and name |
+Returns every registered model with its engine, mode, capabilities, languages, and availability status.
 
 ### `list_voices`
 
-List voices with optional filters — globally or per-model.
+List all voices across every engine. No parameters.
 
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `model_id` | string | `""` | Restrict to a specific model (e.g. `kokoro`) |
-| `language` | string | `""` | Filter by language code (e.g. `en-us`, `ja`, `zh`) |
-| `gender` | string | `""` | Filter by gender (`male`, `female`) |
-| `tone` | string | `""` | Filter by tone tag (e.g. `warm`, `deep`, `playful`) |
-| `category` | string | `""` | Filter by category (`built_in`, `cloneable`) |
+Returns voices enriched with metadata (gender, age_tier, tone_tags, quality_grade, description).
 
 ### `list_sfx`
 
@@ -124,20 +112,13 @@ Returns name, size, duration, and format for each file in the `sfx/` directory.
 
 ### `list_stt_models`
 
-List speech-to-text models.
+List all speech-to-text models. No parameters.
 
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `available_only` | bool | `false` | Show only locally available models |
-| `engine` | string | `""` | Filter by engine (`faster_whisper`, `whisper_mlx`) |
+Returns every STT model with engine, languages, availability, and install info.
 
 ### `list_outputs`
 
-List recently generated audio outputs.
-
-| Param | Type | Default | Description |
-|---|---|---|---|
-| `limit` | integer | `20` | Max items to return (max 100) |
+List recently generated audio outputs (last 20). No parameters.
 
 ### `search_voices`
 
@@ -185,9 +166,9 @@ No parameters. Returns a comprehensive document LLMs can use to understand what 
 ## Best Practices for LLMs
 
 1. **Start with `get_capabilities()`** to understand what's available.
-2. **Browse resources** (`sonus://models`, `sonus://voices`) to find what you need.
-3. **Use `search_voices()`** when you need a voice with specific qualities (warm, deep, female, Japanese, etc.).
-4. **Use `list_models()`** with filters to narrow down to the right engine.
+2. **Use `list_models()`** or browse the `sonus://models` resource to see all TTS models.
+3. **Use `list_voices()`** or browse `sonus://voices` to see all available voices.
+4. **Use `search_voices()`** when you need a voice with specific qualities (warm, deep, female, Japanese, etc.).
 5. **Call `preview_voice()`** to get a full voice description before suggesting it.
 6. **Check `sonus://sfx`** to see available sound effects for SSML `<audio>` embedding.
 7. **Browse `sonus://presets`** to reuse existing configurations.

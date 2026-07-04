@@ -154,12 +154,12 @@ def get_root() -> str:
                 "sonus://formats": "SSML format specification",
             },
             "tools": {
-                "list_models": "Filter/search TTS models by engine, capability, mode",
-                "list_voices": "List voices with optional filters",
+                "list_models": "List all TTS models",
+                "list_voices": "List all voices across all engines",
                 "list_sfx": "List all sound effects",
-                "list_stt_models": "List STT models with optional filters",
+                "list_stt_models": "List all STT models",
                 "list_outputs": "List recent generated audio outputs",
-                "search_voices": "Advanced cross-engine voice search",
+                "search_voices": "Advanced cross-engine voice search with filters",
                 "preview_voice": "Get detailed description for a specific voice",
                 "suggest_voice_for_character": "Find voices matching character criteria",
                 "get_capabilities": "Full Sonus overview",
@@ -479,113 +479,16 @@ def _tts_engine_for_name(name: str):
 
 
 @mcp.tool()
-def list_models(
-    engine: str = "",
-    capability: str = "",
-    mode: str = "",
-    available_only: bool = False,
-    query: str = "",
-) -> str:
-    manifest = _build_manifest(available_only=available_only)
-    results = []
-    for eid, entry in manifest.items():
-        if engine and entry["engine"] != engine:
-            continue
-        if capability and capability not in entry.get("capabilities", []):
-            continue
-        if mode and entry.get("mode") != mode:
-            continue
-        if query:
-            ql = query.lower()
-            if ql not in eid.lower() and ql not in entry.get("name", "").lower():
-                continue
-        results.append(entry)
-    filter_info = {
-        "engine": engine or None,
-        "capability": capability or None,
-        "mode": mode or None,
-    }
-    return _format_sse(results, "model_list", {"filter": filter_info})
+def list_models() -> str:
+    manifest = _build_manifest(available_only=False)
+    return _format_sse(list(manifest.values()), "model_list")
 
 
 @mcp.tool()
-def list_voices(
-    model_id: str = "",
-    language: str = "",
-    gender: str = "",
-    tone: str = "",
-    category: str = "",
-) -> str:
-    if model_id:
-        manifest = _build_manifest(available_only=False)
-        entry = manifest.get(model_id)
-        if not entry:
-            return json.dumps(
-                {"error": f"Model '{model_id}' not found.", "available_models": sorted(manifest)},
-                indent=2,
-            )
-        engine_name = entry["engine"]
-        engine_obj = _tts_engine_for_name(engine_name)
-
-        desc_voices = get_model_voices(model_id)
-        if desc_voices:
-            raw = desc_voices
-        elif engine_obj:
-            raw_dict = engine_obj.list_voices()
-            raw = []
-            for key, items in raw_dict.items():
-                if not isinstance(items, list):
-                    continue
-                cat = "built_in" if key not in ("built_in", "cloneable") else key
-                lang = None if key in ("built_in", "cloneable") else key
-                for item in items:
-                    v: dict = {
-                        "id": item,
-                        "category": cat,
-                        "model": model_id,
-                        "engine": engine_name,
-                    }
-                    if lang:
-                        v["language"] = lang
-                    raw.append(v)
-        else:
-            raw = []
-
-        results = []
-        for v in raw:
-            if language and v.get("language", "") != language:
-                continue
-            if gender and v.get("gender", "") != gender:
-                continue
-            if tone and tone not in v.get("tone_tags", []):
-                continue
-            if category and v.get("category", "") != category:
-                continue
-            results.append(_enrich_voice(dict(v)))
-        return _format_sse(
-            results,
-            "voice_list",
-            {"model": model_id, "voice_count": len(results)},
-        )
-
+def list_voices() -> str:
     all_v = _all_voices_flat()
-    results = []
-    for v in all_v:
-        if language and v.get("language", "") != language:
-            continue
-        if category and v.get("category", "") != category:
-            continue
-        enriched = _enrich_voice(dict(v))
-        if gender and enriched.get("gender", "") != gender:
-            continue
-        if tone and tone not in enriched.get("tone_tags", []):
-            continue
-        results.append(enriched)
-    return _format_sse(
-        results,
-        "voice_list",
-        {"voice_count": len(results)},
-    )
+    enriched = [_enrich_voice(v) for v in all_v]
+    return _format_sse(enriched, "voice_list", {"voice_count": len(enriched)})
 
 
 @mcp.tool()
@@ -610,20 +513,15 @@ def list_sfx() -> str:
 
 
 @mcp.tool()
-def list_stt_models(available_only: bool = False, engine: str = "") -> str:
+def list_stt_models() -> str:
     models = []
     for stt_engine in STT_ENGINES:
-        name = stt_engine.engine_name
-        if engine and name != engine:
-            continue
         for m in stt_engine.list_models():
-            if available_only and not m.get("available", False):
-                continue
             models.append(
                 {
                     "id": m["id"],
                     "name": m.get("name", m["id"]),
-                    "engine": name,
+                    "engine": stt_engine.engine_name,
                     "mode": m.get("mode", "stt"),
                     "capabilities": m.get("capabilities", []),
                     "description": m.get("description", ""),
@@ -637,8 +535,8 @@ def list_stt_models(available_only: bool = False, engine: str = "") -> str:
 
 
 @mcp.tool()
-def list_outputs(limit: int = 20) -> str:
-    data = _scan_outputs(limit=min(limit, 100))
+def list_outputs() -> str:
+    data = _scan_outputs(limit=20)
     return _format_sse(data, "output_list")
 
 
@@ -939,12 +837,12 @@ def get_capabilities() -> str:
             "formats": "sonus://formats",
         },
         "tools": [
-            "list_models(engine, capability, mode, ...) - Filter/search TTS models",
-            "list_voices(model_id, language, gender, tone, ...) - List voices with filters",
+            "list_models() - List all TTS models",
+            "list_voices() - List all voices across all engines",
             "list_sfx() - List all sound effects",
-            "list_stt_models(available_only, engine) - List STT models",
-            "list_outputs(limit) - List recent generated audio outputs",
-            "search_voices(query, language, gender, ...) - Advanced voice search",
+            "list_stt_models() - List all STT models",
+            "list_outputs() - List recent generated audio outputs",
+            "search_voices(query, ...) - Advanced voice search with filters",
             "preview_voice(model_id, voice_id) - Get voice description and preview",
             "suggest_voice_for_character(...) - Find voices matching character criteria",
             "get_capabilities() - This overview",
