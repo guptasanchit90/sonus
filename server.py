@@ -185,6 +185,8 @@ os.makedirs(OUTPUTS_DIR, exist_ok=True)
 os.makedirs(SFX_DIR, exist_ok=True)
 os.makedirs(VOICES_DIR, exist_ok=True)
 
+_tts_semaphore = asyncio.Semaphore(1)
+
 _VOICE_META_FILE = os.path.join(VOICES_DIR, ".metadata.json")
 
 
@@ -240,6 +242,14 @@ app = FastAPI(
 )
 
 app.include_router(presets_router)
+
+
+@app.on_event("startup")
+async def _startup():
+    from src.cache import bind_cache_loops
+
+    bind_cache_loops(asyncio.get_running_loop())
+
 
 # ---------------------------------------------------------------------------
 # Model manifest — built dynamically from each engine's list_models()
@@ -1782,7 +1792,8 @@ async def openai_speech(req: OpenAIRequest, request: Request):
     os.makedirs(tmp_dir, exist_ok=True)
 
     try:
-        t0 = time.time()
+        async with _tts_semaphore:
+            t0 = time.time()
         generated_paths: dict[int, str] = {}
         async_overlays: dict[int, tuple[str, float]] = {}
 
@@ -1931,8 +1942,8 @@ async def openai_speech(req: OpenAIRequest, request: Request):
 
         gen_time = time.time() - t0
         t1 = time.time()
-        normalize_loudness(wav_path)
-        trim_silence(wav_path)
+        await asyncio.to_thread(normalize_loudness, wav_path)
+        await asyncio.to_thread(trim_silence, wav_path)
         duration = get_audio_duration(wav_path)
         post_time = time.time() - t1
         total_time = time.time() - t0
@@ -1961,7 +1972,7 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 filename = "speech.wav"
             elif req.response_format == "pcm":
                 output_path = os.path.join(OUTPUTS_DIR, f"{output_id}.pcm")
-                if not wav_to_pcm(wav_path, output_path):
+                if not await asyncio.to_thread(wav_to_pcm, wav_path, output_path):
                     raise HTTPException(
                         status_code=500,
                         detail="WAV-to-PCM conversion failed — is ffmpeg installed?",
@@ -1970,7 +1981,7 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 filename = "speech.pcm"
             else:
                 output_path = os.path.join(OUTPUTS_DIR, f"{output_id}.mp3")
-                if not wav_to_mp3(wav_path, output_path):
+                if not await asyncio.to_thread(wav_to_mp3, wav_path, output_path):
                     raise HTTPException(
                         status_code=500,
                         detail="WAV-to-MP3 conversion failed — is ffmpeg installed?",
@@ -2005,7 +2016,7 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 filename = "speech.wav"
             elif req.response_format == "pcm":
                 output_path = os.path.join(tmp_dir, "output.pcm")
-                if not wav_to_pcm(wav_path, output_path):
+                if not await asyncio.to_thread(wav_to_pcm, wav_path, output_path):
                     raise HTTPException(
                         status_code=500,
                         detail="WAV-to-PCM conversion failed — is ffmpeg installed?",
@@ -2014,7 +2025,7 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 filename = "speech.pcm"
             else:
                 output_path = os.path.join(tmp_dir, "output.mp3")
-                if not wav_to_mp3(wav_path, output_path):
+                if not await asyncio.to_thread(wav_to_mp3, wav_path, output_path):
                     raise HTTPException(
                         status_code=500,
                         detail="WAV-to-MP3 conversion failed — is ffmpeg installed?",
@@ -2036,7 +2047,7 @@ async def openai_speech(req: OpenAIRequest, request: Request):
         )
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
 
     if save_output:
         return FileResponse(
@@ -2067,4 +2078,4 @@ app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False, backlog=4096)

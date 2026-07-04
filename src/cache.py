@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from typing import Callable, Generic, TypeVar
@@ -5,6 +6,13 @@ from typing import Callable, Generic, TypeVar
 from src.utils import clean_memory
 
 T = TypeVar("T")
+
+_cache_registry: list["ModelCache"] = []
+
+
+def bind_cache_loops(loop: asyncio.AbstractEventLoop) -> None:
+    for cache in _cache_registry:
+        cache._bind_loop(loop)
 
 
 class ModelCache(Generic[T]):
@@ -21,7 +29,13 @@ class ModelCache(Generic[T]):
         self._model: T | None = None
         self._key: str | None = None
         self._lock = threading.Lock()
-        self._timer: threading.Timer | None = None
+        self._timer_handle: asyncio.TimerHandle | None = None
+        self._thread_timer: threading.Timer | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        _cache_registry.append(self)
+
+    def _bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
 
     def get_or_load(self, key: str, loader: Callable[[], T]) -> T:
         with self._lock:
@@ -72,9 +86,12 @@ class ModelCache(Generic[T]):
 
     def _reschedule(self) -> None:
         self._cancel_timer()
-        self._timer = threading.Timer(self._ttl, self.evict)
-        self._timer.daemon = True
-        self._timer.start()
+        if self._loop is not None:
+            self._timer_handle = self._loop.call_later(self._ttl, self.evict)
+        else:
+            self._thread_timer = threading.Timer(self._ttl, self.evict)
+            self._thread_timer.daemon = True
+            self._thread_timer.start()
 
     def touch(self) -> None:
         with self._lock:
@@ -82,6 +99,9 @@ class ModelCache(Generic[T]):
                 self._reschedule()
 
     def _cancel_timer(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
+        if self._timer_handle is not None:
+            self._timer_handle.cancel()
+            self._timer_handle = None
+        if self._thread_timer is not None:
+            self._thread_timer.cancel()
+            self._thread_timer = None

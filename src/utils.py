@@ -2,6 +2,7 @@ import gc
 import logging
 import os
 import subprocess
+import threading
 import warnings
 
 logging.basicConfig(
@@ -20,6 +21,8 @@ try:
     _MLX_AVAILABLE = True
 except ImportError:
     pass
+
+mlx_lock = threading.Lock()
 
 MODELS_DIR = os.path.join(os.getcwd(), "models")
 VOICES_DIR = os.path.join(os.getcwd(), "voices")
@@ -90,8 +93,11 @@ def convert_to_wav_24k(input_path: str, output_path: str) -> bool:
 
 def clean_memory() -> None:
     gc.collect()
-    if _MLX_AVAILABLE:
-        mx.clear_cache()
+    if _MLX_AVAILABLE and mlx_lock.acquire(blocking=False):
+        try:
+            mx.clear_cache()
+        finally:
+            mlx_lock.release()
 
 
 def scan_wav_voices(directory: str = VOICES_DIR) -> list[str]:

@@ -31,6 +31,7 @@ from src.utils import (
     SAMPLE_RATE,
     VOICES_DIR,
     get_audio_duration,
+    mlx_lock,
     resolve_voice,
     scan_wav_voices,
 )
@@ -147,7 +148,7 @@ _MODEL_META: dict[str, dict] = {
     },
 }
 
-_model_cache = ModelCache(ttl=30, tag="chatterbox")
+_model_cache = ModelCache(ttl=300, tag="chatterbox")
 
 
 def _is_turbo(model_name: str) -> bool:
@@ -263,70 +264,71 @@ class ChatterboxEngine(BaseEngine):
                 ),
             )
 
-        mx.random.seed(request["effective_seed"])
+        with mlx_lock:
+            mx.random.seed(request["effective_seed"])
 
-        t0 = time.time()
-        try:
-            model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
-            )
+            t0 = time.time()
+            try:
+                model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
+                )
 
-        ref_audio = None
-        if voice_file:
-            ref_audio = resolve_voice(voice_file)
+            ref_audio = None
+            if voice_file:
+                ref_audio = resolve_voice(voice_file)
 
-        is_turbo = _is_turbo(model_name)
+            is_turbo = _is_turbo(model_name)
 
-        try:
-            kwargs: dict = {
-                "text": text,
-                "ref_audio": ref_audio,
-                "temperature": temperature,
-                "repetition_penalty": 1.2,
-            }
+            try:
+                kwargs: dict = {
+                    "text": text,
+                    "ref_audio": ref_audio,
+                    "temperature": temperature,
+                    "repetition_penalty": 1.2,
+                }
 
-            word_count = len(text.split())
-            max_tokens_est = max(400, min(int(word_count * 25), 4096))
+                word_count = len(text.split())
+                max_tokens_est = max(400, min(int(word_count * 25), 4096))
 
-            if is_turbo:
-                kwargs["top_p"] = 0.95
-                kwargs["max_tokens"] = max_tokens_est
-                kwargs["norm_loudness"] = True
-            else:
-                kwargs["top_p"] = 0.95
-                kwargs["max_new_tokens"] = max_tokens_est
-                kwargs["exaggeration"] = request.get("exaggeration", 0.1)
-                kwargs["cfg_weight"] = request.get("cfg_weight", 0.0)
-                kwargs["min_p"] = 0.05
-                kwargs["lang_code"] = request.get("lang_code", "en")
+                if is_turbo:
+                    kwargs["top_p"] = 0.95
+                    kwargs["max_tokens"] = max_tokens_est
+                    kwargs["norm_loudness"] = True
+                else:
+                    kwargs["top_p"] = 0.95
+                    kwargs["max_new_tokens"] = max_tokens_est
+                    kwargs["exaggeration"] = request.get("exaggeration", 0.1)
+                    kwargs["cfg_weight"] = request.get("cfg_weight", 0.0)
+                    kwargs["min_p"] = 0.05
+                    kwargs["lang_code"] = request.get("lang_code", "en")
 
-            audio_chunks = []
-            for result in model.generate(**kwargs):
-                audio_chunks.append(np.array(result.audio))
+                audio_chunks = []
+                for result in model.generate(**kwargs):
+                    audio_chunks.append(np.array(result.audio))
 
-            if not audio_chunks:
-                raise HTTPException(status_code=500, detail="TTS produced no audio output")
+                if not audio_chunks:
+                    raise HTTPException(status_code=500, detail="TTS produced no audio output")
 
-            audio = np.concatenate(audio_chunks)
-            wav_path = os.path.join(tmp_dir, "audio_000.wav")
-            sf.write(wav_path, audio, SAMPLE_RATE)
+                audio = np.concatenate(audio_chunks)
+                wav_path = os.path.join(tmp_dir, "audio_000.wav")
+                sf.write(wav_path, audio, SAMPLE_RATE)
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(
-                "generation_failed req_id=%s segment=%s model=%s voice=%s: %s",
-                req_id, segment, model_name, voice_file, e,
-            )
-            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    "generation_failed req_id=%s segment=%s model=%s voice=%s: %s",
+                    req_id, segment, model_name, voice_file, e,
+                )
+                raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-        _model_cache.touch()
+            _model_cache.touch()
 
         if not os.path.exists(wav_path):
             raise HTTPException(status_code=500, detail="TTS produced no output file")

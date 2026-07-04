@@ -47,6 +47,7 @@ from src.utils import (
     SAMPLE_RATE,
     VOICES_DIR,
     convert_to_wav_24k,
+    mlx_lock,
     resolve_voice,
 )
 from src.utils import (
@@ -140,7 +141,7 @@ def _clear_embeddings():
         _speaker_embedding_cache.clear()
 
 
-_model_cache = ModelCache(ttl=30, tag="qwen", on_evict=_clear_embeddings)
+_model_cache = ModelCache(ttl=300, tag="qwen", on_evict=_clear_embeddings)
 
 
 def _load_audio_for_embedding(audio_path: str):
@@ -386,92 +387,93 @@ class QwenEngine(BaseEngine):
                 detail=f"Model folder '{model_name}' not found in {MODELS_DIR}",
             )
 
-        mx.random.seed(request["effective_seed"])
+        with mlx_lock:
+            mx.random.seed(request["effective_seed"])
 
-        t0 = time.time()
-        try:
-            model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
-            )
-
-        try:
-            text = _sanitize_text(text)
-
-            if mode == "custom":
-                generate_audio(
-                    model=model,
-                    text=text,
-                    voice=request.get("speaker_name") or "Vivian",
-                    instruct=request.get("voice_description") or "Normal tone",
-                    speed=speed,
-                    temperature=temperature,
-                    output_path=tmp_dir,
+            t0 = time.time()
+            try:
+                model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
                 )
 
-            elif mode == "design":
-                generate_audio(
-                    model=model,
-                    text=text,
-                    instruct=request["voice_description"],
-                    speed=speed,
-                    temperature=temperature,
-                    output_path=tmp_dir,
-                )
+            try:
+                text = _sanitize_text(text)
 
-            elif mode == "clone":
-                voice_path = resolve_voice(request["sample_voice_file"])
-                assert voice_path is not None
-
-                ref_wav = os.path.join(tmp_dir, "ref_converted.wav")
-                if not convert_to_wav_24k(voice_path, ref_wav):
-                    raise HTTPException(status_code=500, detail="Failed to convert reference audio")
-
-                txt_path = os.path.splitext(voice_path)[0] + ".txt"
-                ref_text = None
-                if os.path.exists(txt_path):
-                    with open(txt_path, "r", encoding="utf-8") as fh:
-                        ref_text = fh.read().strip() or None
-                if not ref_text:
-                    name = request["sample_voice_file"]
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"No transcript found for voice '{name}'. "
-                        "Re-upload the voice file so a transcript is generated, "
-                        "or place a <name>.txt file alongside the WAV.",
-                    )
-
-                embedding = _get_or_compute_speaker_embedding(model, voice_path)
-                _inject_speaker_embedding(model, embedding)
-
-                try:
+                if mode == "custom":
                     generate_audio(
                         model=model,
                         text=text,
-                        ref_audio=ref_wav,
-                        ref_text=ref_text,
+                        voice=request.get("speaker_name") or "Vivian",
+                        instruct=request.get("voice_description") or "Normal tone",
                         speed=speed,
                         temperature=temperature,
                         output_path=tmp_dir,
                     )
-                finally:
-                    _restore_speaker_embedding(model)
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(
-                "generation_failed req_id=%s segment=%s model=%s mode=%s voice=%s: %s",
-                req_id, segment, model_name, mode, voice_label, e,
-            )
-            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+                elif mode == "design":
+                    generate_audio(
+                        model=model,
+                        text=text,
+                        instruct=request["voice_description"],
+                        speed=speed,
+                        temperature=temperature,
+                        output_path=tmp_dir,
+                    )
 
-        _model_cache.touch()
+                elif mode == "clone":
+                    voice_path = resolve_voice(request["sample_voice_file"])
+                    assert voice_path is not None
+
+                    ref_wav = os.path.join(tmp_dir, "ref_converted.wav")
+                    if not convert_to_wav_24k(voice_path, ref_wav):
+                        raise HTTPException(status_code=500, detail="Failed to convert reference audio")
+
+                    txt_path = os.path.splitext(voice_path)[0] + ".txt"
+                    ref_text = None
+                    if os.path.exists(txt_path):
+                        with open(txt_path, "r", encoding="utf-8") as fh:
+                            ref_text = fh.read().strip() or None
+                    if not ref_text:
+                        name = request["sample_voice_file"]
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"No transcript found for voice '{name}'. "
+                            "Re-upload the voice file so a transcript is generated, "
+                            "or place a <name>.txt file alongside the WAV.",
+                        )
+
+                    embedding = _get_or_compute_speaker_embedding(model, voice_path)
+                    _inject_speaker_embedding(model, embedding)
+
+                    try:
+                        generate_audio(
+                            model=model,
+                            text=text,
+                            ref_audio=ref_wav,
+                            ref_text=ref_text,
+                            speed=speed,
+                            temperature=temperature,
+                            output_path=tmp_dir,
+                        )
+                    finally:
+                        _restore_speaker_embedding(model)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    "generation_failed req_id=%s segment=%s model=%s mode=%s voice=%s: %s",
+                    req_id, segment, model_name, mode, voice_label, e,
+                )
+                raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+            _model_cache.touch()
 
         wav_path = os.path.join(tmp_dir, "audio.wav")
         segments = sorted(
