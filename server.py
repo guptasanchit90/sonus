@@ -21,7 +21,13 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 try:
     import uvicorn
     from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
-    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+    from fastapi.responses import (
+        FileResponse,
+        HTMLResponse,
+        JSONResponse,
+        PlainTextResponse,
+        Response,
+    )
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, field_validator
 except ImportError:
@@ -44,6 +50,105 @@ from src.audio import (
 )
 from src.engines.base import discover as discover_tts
 from src.mcp_server import create_mcp_handler, mcp_lifespan
+
+_DOC_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title} — Sonus Docs</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117; color: #e6edf3; line-height: 1.7;
+    padding: 2rem 1rem; max-width: 880px; margin: 0 auto;
+  }}
+  a {{ color: #58a6ff; text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
+  h1 {{ font-size: 1.8rem; margin: 0 0 0.25rem; color: #f0f6fc; }}
+  h2 {{ font-size: 1.4rem; margin: 1.8em 0 0.6em; padding-bottom: 0.3em;
+    border-bottom: 1px solid #30363d; color: #f0f6fc; }}
+  h3 {{ font-size: 1.15rem; margin: 1.4em 0 0.5em; color: #f0f6fc; }}
+  h4 {{ font-size: 1rem; margin: 1.2em 0 0.4em; }}
+  p, li {{ margin: 0.5em 0; }}
+  ul, ol {{ padding-left: 1.5em; }}
+  code {{
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.88em; background: #161b22; padding: 0.15em 0.4em;
+    border-radius: 4px; color: #ffa657;
+  }}
+  pre {{
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 1rem; overflow-x: auto; margin: 0.8em 0;
+  }}
+  pre code {{ background: none; padding: 0; color: #e6edf3; font-size: 0.82em; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+  th, td {{ border: 1px solid #30363d; padding: 0.5em 0.75em; text-align: left; }}
+  th {{ background: #161b22; font-weight: 600; color: #f0f6fc; }}
+  tr:nth-child(even) {{ background: #0d1117; }}
+  tr:nth-child(odd) {{ background: #111820; }}
+  blockquote {{
+    border-left: 3px solid #30363d; padding: 0.5em 1em; margin: 1em 0;
+    background: #161b22; border-radius: 0 4px 4px 0;
+  }}
+  blockquote code {{ background: #1c2333; }}
+  hr {{ border: none; border-top: 1px solid #30363d; margin: 1.5em 0; }}
+  .header {{
+    display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
+  }}
+  .header a {{
+    font-size: 0.85rem; color: #8b949e; display: flex; align-items: center; gap: 0.35rem;
+  }}
+  .header a:hover {{ color: #58a6ff; }}
+  strong {{ color: #f0f6fc; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="2">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+    <line x1="12" y1="19" x2="12" y2="23"/>
+    <line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>
+  <a href="/mcp-docs/mcp.md">Sonus MCP Docs</a>
+</div>
+{content}
+</body>
+</html>"""
+
+
+class DocFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        if path.endswith(".md"):
+            full_path = os.path.join(self.directory, path)
+            if os.path.isfile(full_path):
+                try:
+                    import markdown as md_lib
+
+                    with open(full_path, encoding="utf-8") as f:
+                        content = f.read()
+                    html_body = md_lib.markdown(
+                        content,
+                        extensions=["fenced_code", "tables"],
+                    )
+                    title = (
+                        os.path.splitext(os.path.basename(path))[0]
+                        .replace("-", " ")
+                        .replace("_", " ")
+                        .title()
+                    )
+                    styled = _DOC_TEMPLATE.format(title=title, content=html_body)
+                    return HTMLResponse(styled)
+                except Exception:
+                    pass
+        return await super().get_response(path, scope)
+
+
 from src.presets import presets_router
 from src.ssml import needs_ssml, to_ssml
 from src.stt.base import discover as discover_stt
@@ -1957,6 +2062,7 @@ app.add_route("/mcp", route=mcp_handler, include_in_schema=False)
 app.add_route("/mcp/", route=mcp_handler, include_in_schema=False)
 app.router.lifespan_context = mcp_lifespan
 
+app.mount("/mcp-docs", DocFiles(directory="docs", html=True), name="mcp-docs")
 app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 

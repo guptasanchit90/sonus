@@ -44,3 +44,5 @@
 | `POST /v1/audio/speech` | OpenAI-compatible TTS — drop-in replacement |
 | `POST /v1/audio/transcriptions` | OpenAI-compatible STT |
 | `GET /v1/stt/models` | Available STT models |
+| `../mcp-docs/mcp.md` | MCP (Model Context Protocol) — [docs](mcp.md) |
+| `POST /mcp` | MCP streamable HTTP endpoint |

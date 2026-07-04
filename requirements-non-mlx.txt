@@ -4,6 +4,7 @@ fastapi==0.133.1
 python-multipart==0.0.32
 uvicorn==0.41.0
 mcp==1.28.1
+markdown==3.7
 
 # ── TTS engines (cross-platform ONNX) ────────────────────────────────────────
 kokoro-onnx==0.4.7
