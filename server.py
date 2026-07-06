@@ -301,6 +301,7 @@ class OpenAIRequest(BaseModel):
     temperature: float | None = None
     exaggeration: float | None = None
     cfg_weight: float | None = None
+    seed: int | None = None
 
     @field_validator("input")
     @classmethod
@@ -595,7 +596,7 @@ def _openai_to_internal(req: OpenAIRequest, manifest: dict) -> dict:
         "speed": speed_key,
         "speed_value": req.speed,
         "temperature": req.temperature if req.temperature is not None else 0.7,
-        "seed": None,
+        "seed": req.seed,
         "speaker_name": None,
         "voice_description": None,
         "sample_voice_file": None,
@@ -1711,7 +1712,16 @@ async def openai_speech(req: OpenAIRequest, request: Request):
     req_id = uuid.uuid4().hex[:8]
     request_dict["req_id"] = req_id
 
-    effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
+    x_seed_header = request.headers.get("x-seed")
+    if x_seed_header is not None:
+      try:
+        effective_seed = int(x_seed_header)
+      except ValueError:
+        effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
+    elif req.seed is not None:
+      effective_seed = req.seed
+    else:
+      effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
     request_dict["effective_seed"] = effective_seed
 
     is_ssml_input = req.input.strip().startswith("<speak")
