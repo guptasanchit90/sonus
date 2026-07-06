@@ -105,3 +105,53 @@ class ModelCache(Generic[T]):
         if self._thread_timer is not None:
             self._thread_timer.cancel()
             self._thread_timer = None
+
+
+def get_loaded_models() -> list[dict]:
+    """Retrieve details of all models currently loaded in memory caches."""
+    loaded = []
+    for cache in _cache_registry:
+        if cache.current_key is not None:
+            loaded.append(
+                {
+                    "model": cache.current_key,
+                    "engine": cache._tag,
+                    "ttl": cache._ttl,
+                }
+            )
+    return loaded
+
+
+def unload_models(model_id: str | None = None, unload_all: bool = False) -> list[dict]:
+    """Unload specific or all models from memory caches."""
+    import os
+
+    unloaded = []
+    for cache in _cache_registry:
+        if cache.current_key is not None:
+            key = cache.current_key
+            tag = cache._tag
+
+            should_unload = False
+            if unload_all:
+                should_unload = True
+            elif model_id:
+                basename = os.path.splitext(os.path.basename(key))[0]
+                if (
+                    model_id == key
+                    or model_id == tag
+                    or model_id == basename
+                    or model_id in key
+                ):
+                    should_unload = True
+
+            if should_unload:
+                cache.evict()
+                unloaded.append(
+                    {
+                        "model": key,
+                        "engine": tag,
+                    }
+                )
+    return unloaded
+

@@ -81,6 +81,66 @@ Also supports `?extras=true` for full detail.
 
 ---
 
+## GET /v1/models/loaded — List loaded models
+
+Returns details of all models currently loaded in memory caches.
+
+```bash
+curl http://localhost:8000/v1/models/loaded
+```
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "model": "kokoro-v1.0",
+      "engine": "kokoro",
+      "ttl": 30
+    }
+  ]
+}
+```
+
+---
+
+## POST /v1/models/unload — Unload models from memory
+
+Unload a specific model or all loaded models from memory.
+
+### Query parameters
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `model_id` | string | `null` | The ID, tag, or path of the model to unload (e.g. `kokoro-v1.0`, `kokoro`, `en_US-lessac-medium`) |
+| `all` | boolean | `false` | Unload all models from memory caches if `true` |
+
+> [!NOTE]
+> Either `model_id` or `all=true` must be specified.
+
+### Examples
+
+**Unloading a specific model:**
+```bash
+curl -X POST "http://localhost:8000/v1/models/unload?model_id=kokoro-v1.0"
+```
+
+```json
+{
+  "status": "success",
+  "unloaded": [
+    {"model": "kokoro-v1.0", "engine": "kokoro"}
+  ]
+}
+```
+
+**Unloading all models:**
+```bash
+curl -X POST "http://localhost:8000/v1/models/unload?all=true"
+```
+
+---
+
 ## POST /v1/audio/speech — OpenAI-compatible TTS
 
 Drop-in replacement for [OpenAI's TTS endpoint](https://platform.openai.com/docs/api-reference/audio/createSpeech). Point your existing code at `http://localhost:8000` and it just works.

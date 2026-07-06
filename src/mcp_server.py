@@ -9,6 +9,8 @@ from starlette.routing import Route
 
 import src.engines  # noqa: F401
 import src.stt  # noqa: F401
+from src.cache import get_loaded_models as get_loaded_models_helper
+from src.cache import unload_models as unload_models_helper
 from src.engines.base import discover as discover_tts
 from src.presets import _list_presets as _list_presets_raw
 from src.stt.base import discover as discover_stt
@@ -145,6 +147,7 @@ def get_root() -> str:
             "resources": {
                 "sonus://": "This overview",
                 "sonus://models": "TTS models with capabilities and availability",
+                "sonus://models/loaded": "Details of all models currently loaded in memory",
                 "sonus://voices": "All voices across every engine",
                 "sonus://voices/{model_id}": "Voices for a specific model",
                 "sonus://stt_models": "STT models with availability and install info",
@@ -155,8 +158,10 @@ def get_root() -> str:
                 "sonus://formats": "SSML format specification",
             },
             "tools": {
-                "list_models": "List all TTS models",
-                "list_voices": "List all voices across all engines",
+                 "list_models": "List all TTS models",
+                 "list_loaded_models": "List all models currently loaded in memory",
+                 "unload_models": "Unload a specific model or all loaded models from memory",
+                 "list_voices": "List all voices across all engines",
                 "list_sfx": "List all sound effects",
                 "list_stt_models": "List all STT models",
                 "list_outputs": "List recent generated audio outputs",
@@ -421,6 +426,13 @@ def get_formats() -> str:
     return json.dumps(spec, indent=2)
 
 
+@mcp.resource("sonus://models/loaded")
+def get_loaded_models_resource() -> str:
+    """Retrieve details of all models currently loaded in memory caches."""
+    loaded = get_loaded_models_helper()
+    return _format_sse(loaded, "loaded_model_list")
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers for tools
 # ---------------------------------------------------------------------------
@@ -477,6 +489,25 @@ def _tts_engine_for_name(name: str):
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_loaded_models() -> str:
+    """List all models currently loaded in memory caches."""
+    loaded = get_loaded_models_helper()
+    return _format_sse(loaded, "loaded_model_list")
+
+
+@mcp.tool()
+def unload_models(model_id: str | None = None, all: bool = False) -> str:
+    """Unload a specific model or all loaded models from memory caches."""
+    if not model_id and not all:
+        return json.dumps(
+            {"error": "Must specify either 'model_id' or 'all=true' parameter."},
+            indent=2,
+        )
+    unloaded = unload_models_helper(model_id=model_id, unload_all=all)
+    return json.dumps({"status": "success", "unloaded": unloaded}, indent=2)
 
 
 @mcp.tool()

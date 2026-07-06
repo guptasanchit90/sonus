@@ -77,6 +77,7 @@ Resources are read-only data URIs an LLM can browse. Sonus exposes these:
 |---|---|
 | `sonus://` | Root overview of all available resources and tools |
 | `sonus://models` | All TTS models with capabilities, languages, availability |
+| `sonus://models/loaded` | Details of all models currently loaded in memory caches |
 | `sonus://voices` | All voices across every engine (104+) with metadata |
 | `sonus://voices/{model_id}` | Voices for a specific model (e.g. `sonus://voices/kokoro`) |
 | `sonus://stt_models` | All STT models with availability and install instructions |
@@ -160,6 +161,19 @@ Score and rank voices by character criteria.
 Full Sonus overview — features, available models, resources, tools, and REST API endpoints.
 
 No parameters. Returns a comprehensive document LLMs can use to understand what Sonus can do.
+
+### `list_loaded_models`
+
+List all models currently loaded in memory caches. No parameters.
+
+### `unload_models`
+
+Unload a specific model or all loaded models from memory caches.
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `model_id` | string | `null` | The ID, tag, or path of the model to unload (e.g. `kokoro-v1.0`, `kokoro`) |
+| `all` | boolean | `false` | Unload all models from memory caches if `true` |
 
 ---
 

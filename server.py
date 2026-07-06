@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 try:
     import uvicorn
     from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import (
         FileResponse,
         HTMLResponse,
@@ -48,6 +49,7 @@ from src.audio import (
     wav_to_mp3,
     wav_to_pcm,
 )
+from src.cache import get_loaded_models, unload_models
 from src.engines.base import discover as discover_tts
 from src.mcp_server import create_mcp_handler, mcp_lifespan
 
@@ -239,6 +241,14 @@ app = FastAPI(
             "description": "Save, list, rename, and delete voice configuration presets.",
         },
     ],
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(presets_router)
@@ -1529,6 +1539,33 @@ def get_v1_model(model_id: str, extras: bool = False):
             }
         )
     return JSONResponse(content=result)
+
+
+@app.get(
+    "/v1/models/loaded",
+    summary="List all models currently loaded in memory",
+    tags=["models-and-voices"],
+)
+def list_loaded_models():
+    """Returns a list of all models currently loaded in memory caches."""
+    loaded = get_loaded_models()
+    return JSONResponse(content={"object": "list", "data": loaded})
+
+
+@app.post(
+    "/v1/models/unload",
+    summary="Unload a specific model or all models from memory",
+    tags=["models-and-voices"],
+)
+def post_unload_models(model_id: str | None = None, all: bool = False):
+    """Unloads one or all models from memory caches."""
+    if not model_id and not all:
+        raise HTTPException(
+            status_code=400,
+            detail="Must specify either 'model_id' or 'all=true' parameter.",
+        )
+    unloaded = unload_models(model_id=model_id, unload_all=all)
+    return JSONResponse(content={"status": "success", "unloaded": unloaded})
 
 
 @app.get(
