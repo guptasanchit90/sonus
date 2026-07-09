@@ -229,6 +229,7 @@
     <div class="panel-header">
       <div class="app-tabs">
         <button class="app-tab" :class="{ active: $store.activeTab === 'generate' }" @click="$store.activeTab = 'generate'" type="button">Generate Speech</button>
+        <button class="app-tab" :class="{ active: $store.activeTab === 'music' }" @click="switchToMusicTab" type="button">Music / SFX</button>
         <button class="app-tab" :class="{ active: $store.activeTab === 'transcribe' }" @click="switchToTranscribeTab" type="button">Transcribe</button>
       </div>
     </div>
@@ -558,6 +559,48 @@
 
         <transition name="slide">
           <div class="status-msg" :class="genStatusClass" v-if="genStatus && !$store.batchProgress">{{ genStatus }}</div>
+        </transition>
+      </form>
+      </template>
+
+      <template v-if="$store.activeTab === 'music'">
+      <form @submit.prevent="onMusicSubmit()">
+        <div class="form-group">
+          <label for="music-text">Prompt *</label>
+          <textarea id="music-text" v-model="$store.musicForm.text" placeholder="Describe the music or sound effect to generate... e.g. lo-fi hip hop beat with vinyl crackle" required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="music-model">Model *</label>
+          <select id="music-model" v-model="$store.musicForm.model" required>
+            <option value="">— Select a model —</option>
+            <option v-for="m in musicModels" :value="m.id" :disabled="!m.available">
+              {{ m.name }}{{ capsLabel(m) }}{{ unavailLabel(m) }}
+            </option>
+          </select>
+          <div class="voice-hint" v-if="musicModelDesc">{{ musicModelDesc }}</div>
+        </div>
+
+        <div class="form-group">
+          <label for="music-duration">Duration (seconds)</label>
+          <input type="range" id="music-duration" min="1.0" max="30.0" step="1.0" v-model.number="$store.musicForm.duration">
+          <div class="range-label">
+            <span>1s</span>
+            <span>{{ Number($store.musicForm.duration).toFixed(1) }}s</span>
+            <span>30s</span>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn" :class="btnState" :disabled="$store.loading">
+            <span class="loading-dots" v-if="$store.loading"><span></span><span></span><span></span></span>
+            <span v-else>Generate</span>
+          </button>
+          <button type="button" class="btn btn-ghost" :disabled="!curlReady || $store.loading" @click="$store.curlOpen = !$store.curlOpen">curl</button>
+        </div>
+
+        <transition name="slide">
+          <div class="status-msg" :class="genStatusClass" v-if="genStatus">{{ genStatus }}</div>
         </transition>
       </form>
       </template>

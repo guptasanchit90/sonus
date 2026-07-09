@@ -312,6 +312,7 @@ class OpenAIRequest(BaseModel):
     exaggeration: float | None = None
     cfg_weight: float | None = None
     seed: int | None = None
+    duration: float | None = None
 
     @field_validator("input")
     @classmethod
@@ -611,6 +612,9 @@ def _openai_to_internal(req: OpenAIRequest, manifest: dict) -> dict:
         "voice_description": None,
         "sample_voice_file": None,
     }
+
+    if req.duration is not None:
+        d["duration"] = req.duration
 
     caps = manifest["capabilities"]
 
@@ -1732,9 +1736,11 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 "'voice' is required for voice design models. "
                 "Specify a natural language voice description."
             )
+        elif "text_to_music" in caps or "text_to_sfx" in caps:
+            pass
         else:
             detail = "'voice' is required. Specify a voice name from the available voices."
-        raise HTTPException(status_code=422, detail=detail)
+            raise HTTPException(status_code=422, detail=detail)
 
     request_dict = _openai_to_internal(req, manifest)
 
@@ -2046,6 +2052,8 @@ async def openai_speech(req: OpenAIRequest, request: Request):
                 "seed": effective_seed,
                 "_duration": round(duration, 1),
             }
+            if req.duration is not None:
+                params["duration"] = req.duration
             batch_id = request.headers.get("x-batch-id")
             if batch_id:
                 params["batch_id"] = batch_id
@@ -2125,4 +2133,6 @@ app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False, backlog=4096)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False, backlog=4096)

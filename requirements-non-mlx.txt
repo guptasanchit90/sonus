@@ -20,3 +20,8 @@ faster-whisper==1.1.1
 
 # ── Model loading ────────────────────────────────────────────────────────────
 huggingface_hub==1.3.4
+
+# ── Diffusion-based audio engines (Riffusion, Stable Audio Open) ──────────────
+diffusers>=0.30.0
+accelerate>=0.30.0
+librosa>=0.10.0

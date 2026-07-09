@@ -38,6 +38,10 @@ class ModelCache(Generic[T]):
         self._loop = loop
 
     def get_or_load(self, key: str, loader: Callable[[], T]) -> T:
+        if self._key != key:
+            for cache in _cache_registry:
+                if cache is not self:
+                    cache.evict()
         with self._lock:
             if self._key != key:
                 old_model = self._model

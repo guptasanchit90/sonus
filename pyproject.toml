@@ -19,6 +19,8 @@ indent-style = "space"
 
 [tool.pyright]
 pythonVersion = "3.13"
+venvPath = "."
+venv = "venv"
 include = ["server.py", "src"]
 exclude = ["venv", "models", "outputs"]
 typeCheckingMode = "basic"

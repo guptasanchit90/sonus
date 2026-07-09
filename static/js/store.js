@@ -99,7 +99,14 @@ const store = reactive({
   renaming: null, // { original: string, current: string } or null
 
   // Tab mode
-  activeTab: 'generate', // 'generate' | 'transcribe'
+  activeTab: 'generate', // 'generate' | 'music' | 'transcribe'
+
+  // Music/SFX form
+  musicForm: {
+    model: '',
+    text: '',
+    duration: 10.0,
+  },
 
   // Transcribe form
   transcribeForm: {
@@ -210,4 +217,17 @@ watch(() => ({ model: store.transcribeForm.model, language: store.transcribeForm
 try {
   const saved = localStorage.getItem(TRANS_KEY);
   if (saved) Object.assign(store.transcribeForm, JSON.parse(saved));
+} catch {}
+
+const MUSIC_KEY = 'sonus-music';
+
+// Persist music form
+watch(() => store.musicForm, (val) => {
+  try { localStorage.setItem(MUSIC_KEY, JSON.stringify({ ...val })); } catch {}
+}, { deep: true });
+
+// Restore music form
+try {
+  const saved = localStorage.getItem(MUSIC_KEY);
+  if (saved) Object.assign(store.musicForm, JSON.parse(saved));
 } catch {}

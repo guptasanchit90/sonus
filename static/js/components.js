@@ -488,11 +488,21 @@ comps['generate-form'] = {
     groupedModels() {
       const groups = {};
       this.$store.models.forEach(m => {
+        if (m.capabilities.includes('text_to_music') || m.capabilities.includes('text_to_sfx') || m.engine === 'musicgen') return;
         const e = m.engine || 'other';
         if (!groups[e]) groups[e] = [];
         groups[e].push(m);
       });
       return groups;
+    },
+    musicModels() {
+      return this.$store.models.filter(m => m.capabilities.includes('text_to_music') || m.capabilities.includes('text_to_sfx') || m.engine === 'musicgen');
+    },
+    selectedMusicModel() {
+      return this.$store.models.find(m => m.id === this.$store.musicForm.model) || null;
+    },
+    musicModelDesc() {
+      return (this.selectedMusicModel && this.selectedMusicModel.description) || '';
     },
     engineOrder() {
       return ['qwen', 'kokoro', 'piper', 'chatterbox'];
@@ -506,6 +516,25 @@ comps['generate-form'] = {
       );
     },
     curlCommand() {
+      if (this.$store.activeTab === 'music') {
+        const m = this.$store.musicForm.model;
+        const t = this.$store.musicForm.text.trim();
+        if (!m || !t) return null;
+        const body = {
+          model: m,
+          input: t,
+          voice: 'default',
+          duration: parseFloat(this.$store.musicForm.duration),
+        };
+        const json = JSON.stringify(body, null, 2);
+        return [
+          'curl -X POST http://localhost:8000/v1/audio/speech \\',
+          '  -H "Content-Type: application/json" \\',
+          '  -H "X-Save-Output: true" \\',
+          "  -d '" + json.replace(/'/g, "'\\''") + "' \\",
+          '  --output music.wav',
+        ].join('\n');
+      }
       const m = this.$store.form.model;
       const t = this.$store.form.text.trim();
       if (!m || !t) return null;
@@ -1235,6 +1264,73 @@ comps['generate-form'] = {
       this.$store.multivoiceSelectedVoices.splice(0, this.$store.multivoiceSelectedVoices.length, ...this.multivoiceVoices);
     },
 
+    // ── Music / SFX tab ───────────────────────────────────────────────────
+
+    switchToMusicTab() {
+      this.$store.activeTab = 'music';
+      if (!this.$store.musicForm.model) {
+        const avail = this.musicModels;
+        const small = avail.find(m => m.id === 'musicgen-small');
+        if (small && small.available) this.$store.musicForm.model = small.id;
+        else {
+          const firstAvail = avail.find(m => m.available);
+          if (firstAvail) this.$store.musicForm.model = firstAvail.id;
+        }
+      }
+    },
+    async onMusicSubmit() {
+      const m = this.$store.musicForm.model;
+      const t = this.$store.musicForm.text.trim();
+      if (!m || !t) {
+        this.genStatus = 'Please select a model and enter prompt.';
+        this.genStatusClass = 'error';
+        return;
+      }
+      
+      const body = {
+        model: m,
+        input: t,
+        voice: 'default',
+        duration: parseFloat(this.$store.musicForm.duration),
+      };
+
+      this.$store.loading = true;
+      this.genStatus = '';
+      this.genStatusClass = '';
+
+      try {
+        const resp = await fetch('/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Save-Output': 'true',
+          },
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: 'HTTP ' + resp.status }));
+          this.genStatus = err.detail || 'Error ' + resp.status;
+          this.genStatusClass = 'error';
+          return;
+        }
+
+        const data = await fetch('/outputs/detail').then(r => r.json());
+        this.$store.outputs = data;
+
+        this.btnState = 'btn-success';
+        this.genStatus = 'Done!';
+        this.genStatusClass = 'success';
+        setTimeout(() => { this.btnState = ''; }, 1200);
+      } catch (err) {
+        this.btnState = 'btn-error';
+        this.genStatus = 'Network error: ' + err.message;
+        this.genStatusClass = 'error';
+        setTimeout(() => { this.btnState = ''; }, 600);
+      } finally {
+        this.$store.loading = false;
+      }
+    },
+
     // ── Transcribe tab ────────────────────────────────────────────────────
 
     switchToTranscribeTab() {
@@ -1773,6 +1869,7 @@ comps['confirm-reset-modal'] = {
       this.status = '';
       try {
         await fetch('/outputs', { method: 'DELETE' });
+        await fetch('/v1/models/unload?all=true', { method: 'POST' }).catch(() => {});
         const voicePromises = this.$store.voiceDetails.map(v =>
           fetch('/voice/' + encodeURIComponent(v.name), { method: 'DELETE' }).catch(() => {})
         );

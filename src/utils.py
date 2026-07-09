@@ -68,7 +68,7 @@ def get_audio_duration(filepath: str) -> float:
         return 0.0
 
 
-def convert_to_wav_24k(input_path: str, output_path: str) -> bool:
+def convert_to_wav_24k(input_path: str, output_path: str, channels: int = 1) -> bool:
     cmd = [
         "ffmpeg",
         "-y",
@@ -79,7 +79,7 @@ def convert_to_wav_24k(input_path: str, output_path: str) -> bool:
         "-ar",
         str(SAMPLE_RATE),
         "-ac",
-        "1",
+        str(channels),
         "-c:a",
         "pcm_s16le",
         output_path,
