@@ -6,12 +6,16 @@ Text-to-music generation via spectrogram diffusion. Riffusion fine-tunes Stable 
 
 | Model Key | HF Repo | Size | Capabilities |
 |---|---|---|---|
-| `riffusion-v1` | `GitMylo/riffusion-model-v1-small` | ~2.5 GB | text-to-music |
+| `riffusion-v1` | `GitMylo/riffusion-model-v1-small` | ~2.13 GB | text-to-music |
 
 ## Download
 
 ```bash
+# Downloads the raw .ckpt checkpoint (not Diffusers-format)
 hf download GitMylo/riffusion-model-v1-small --local-dir models/riffusion/riffusion-v1
+
+# Downloads pipeline config files (JSON schemas, tokenizer) — avoids network on every load
+hf download riffusion/riffusion-model-v1 --local-dir models/riffusion/riffusion-v1/riffusion-v1-config --include '*.json' --include '*.txt'
 ```
 
 ## Install Dependencies
