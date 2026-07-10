@@ -141,24 +141,27 @@ def get_root() -> str:
         {
             "name": "Sonus MCP",
             "description": (
-                "Multi-engine, offline text-to-speech server "
-                "with OpenAI-compatible TTS and STT endpoints."
+                "Multi-engine, offline local audio server "
+                "supporting Speech, Music, SFX, and Speech-to-Text."
             ),
             "resources": {
                 "sonus://": "This overview",
-                "sonus://models": "TTS models with capabilities and availability",
+                "sonus://models": (
+                    "Audio generation models (TTS, music, SFX) "
+                    "with capabilities and availability"
+                ),
                 "sonus://models/loaded": "Details of all models currently loaded in memory",
-                "sonus://voices": "All voices across every engine",
+                "sonus://voices": "All voices across every TTS engine",
                 "sonus://voices/{model_id}": "Voices for a specific model",
                 "sonus://stt_models": "STT models with availability and install info",
-                "sonus://engines": "All engines (TTS + STT) with model summaries",
+                "sonus://engines": "All engines (audio generation + STT) with model summaries",
                 "sonus://sfx": "Sound effects with size/duration/format",
                 "sonus://presets": "Saved voice presets",
                 "sonus://outputs": "Recently generated audio outputs",
                 "sonus://formats": "SSML format specification",
             },
             "tools": {
-                 "list_models": "List all TTS models",
+                 "list_models": "List all audio generation models",
                  "list_loaded_models": "List all models currently loaded in memory",
                  "unload_models": "Unload a specific model or all loaded models from memory",
                  "list_voices": "List all voices across all engines",
@@ -825,11 +828,16 @@ def get_capabilities() -> str:
     overview = {
         "name": "Sonus",
         "description": (
-            "Multi-engine, offline text-to-speech server "
-            "with OpenAI-compatible TTS and STT endpoints."
+            "Multi-engine, offline local audio server "
+            "supporting Speech, Music, SFX, and Speech-to-Text."
         ),
         "features": [
-            "Text-to-Speech (TTS) via multiple engines (Kokoro, Qwen, Chatterbox, Piper)",
+            (
+                "Text-to-Speech (TTS) via multiple engines "
+                "(Kokoro, Qwen, Chatterbox, Piper, CosyVoice, Fish Speech)"
+            ),
+            "Text-to-Music generation (MusicGen, Riffusion, Stable Audio Open)",
+            "Text-to-SFX generation (AudioGen, Stable Audio Open)",
             "Speech-to-Text (STT) via Whisper (Faster Whisper / MLX Whisper)",
             "OpenAI-compatible API (/v1/audio/speech, /v1/audio/transcriptions)",
             "SSML support with voice switching, prosody, audio overlays",
@@ -869,7 +877,7 @@ def get_capabilities() -> str:
             "formats": "sonus://formats",
         },
         "tools": [
-            "list_models() - List all TTS models",
+            "list_models() - List all audio generation models",
             "list_voices() - List all voices across all engines",
             "list_sfx() - List all sound effects",
             "list_stt_models() - List all STT models",

@@ -29,8 +29,9 @@ python server.py          # fires up on http://0.0.0.0:8000
 Where to find things:
 - Interactive API docs: `http://localhost:8000/api-docs`
 - Web UI: `http://localhost:8000/`
-- OpenAI-compatible TTS: `http://localhost:8000/v1/audio/speech`
+- OpenAI-compatible Speech/Music/SFX: `http://localhost:8000/v1/audio/speech`
 - OpenAI-compatible STT: `http://localhost:8000/v1/audio/transcriptions`
+- SFX library management: `http://localhost:8000/v1/sfx`
 
 ## Lint & typecheck
 

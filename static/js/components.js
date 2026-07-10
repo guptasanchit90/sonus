@@ -137,6 +137,14 @@ comps['voice-panel'] = {
   },
   computed: {
     items() { return this.$store.voiceDetails; },
+    totalSizeStr() {
+      const bytes = (this.items || []).reduce((sum, v) => sum + (v.size || 0), 0);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
   },
   methods: {
     startRename(name) {
@@ -194,6 +202,14 @@ comps['sfx-panel'] = {
   },
   computed: {
     items() { return this.$store.sfxDetails || []; },
+    totalSizeStr() {
+      const bytes = (this.items || []).reduce((sum, s) => sum + (s.size || 0), 0);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
   },
   mounted() {
     this.loadSFX();
@@ -267,6 +283,14 @@ comps['preset-panel'] = {
   },
   computed: {
     items() { return this.$store.presets || []; },
+    totalSizeStr() {
+      const bytes = (this.items || []).reduce((sum, p) => sum + (p.size || 0), 0);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
   },
   methods: {
     startRename(name) {
@@ -339,6 +363,14 @@ comps['output-panel'] = {
   template: '#output-panel-template',
   computed: {
     hasOutputs() { return this.$store.outputs.length > 0; },
+    totalSizeStr() {
+      const bytes = (this.$store.outputs || []).reduce((sum, o) => sum + (o.size || 0), 0);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
     engineOptions() {
       const s = new Set();
       this.$store.outputs.forEach(o => {
@@ -2561,6 +2593,7 @@ comps['manage-models-modal'] = {
     engineNames() {
       return Object.keys(this.groups).sort();
     },
+
     engineStats() {
       const s = {};
       this.engineNames.forEach(eng => {
@@ -2568,8 +2601,8 @@ comps['manage-models-modal'] = {
         const avail = models.filter(m => m.available).length;
         const gb = models.reduce((sum, m) => {
           if (!m.size) return sum;
-          const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
-          return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
+          const p = m.size.match(/([\d.]+)\s*(GB|MB)/i);
+          return p ? sum + (p[2].toUpperCase() === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
         }, 0);
         s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
       });
@@ -2594,8 +2627,8 @@ comps['manage-models-modal'] = {
         const avail = models.filter(m => m.available).length;
         const gb = models.reduce((sum, m) => {
           if (!m.size) return sum;
-          const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
-          return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
+          const p = m.size.match(/([\d.]+)\s*(GB|MB)/i);
+          return p ? sum + (p[2].toUpperCase() === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
         }, 0);
         s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
       });
@@ -2621,12 +2654,36 @@ comps['manage-models-modal'] = {
         const avail = models.filter(m => m.available).length;
         const gb = models.reduce((sum, m) => {
           if (!m.size) return sum;
-          const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
-          return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
+          const p = m.size.match(/([\d.]+)\s*(GB|MB)/i);
+          return p ? sum + (p[2].toUpperCase() === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
         }, 0);
         s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
       });
       return s;
+    },
+    totalDownloadedSizeGb() {
+      let totalGb = 0;
+      const parseSizeToGb = (sizeStr) => {
+        if (!sizeStr) return 0;
+        const p = sizeStr.match(/([\d.]+)\s*(GB|MB)/i);
+        if (!p) return 0;
+        const val = parseFloat(p[1]);
+        return p[2].toUpperCase() === 'GB' ? val : val / 1000;
+      };
+      
+      (this.$store.models || []).forEach(m => {
+        if (m.available) {
+          totalGb += parseSizeToGb(m.size);
+        }
+      });
+      
+      (this.$store.e2eModels || []).forEach(m => {
+        if (m.available) {
+          totalGb += parseSizeToGb(m.size);
+        }
+      });
+      
+      return Math.round(totalGb * 10) / 10;
     },
   },
   mounted() {},

@@ -8,7 +8,7 @@ POST http://localhost:8000/mcp
 
 MCP lets AI assistants (Claude, Cline, Continue, etc.) discover Sonus capabilities — list models, browse voices, search sound effects, inspect presets, and more — without needing to know the REST API.
 
-> **Note:** MCP is for *discovery* and *orchestration*, not for generating audio. To synthesize speech, use the REST API (`POST /v1/audio/speech`) or the Web UI.
+> **Note:** MCP is for *discovery* and *orchestration*, not for generating audio. To generate audio (speech, music, SFX) or transcribe speech, use the REST API or the Web UI.
 
 ---
 
@@ -76,12 +76,12 @@ Resources are read-only data URIs an LLM can browse. Sonus exposes these:
 | URI | Description |
 |---|---|
 | `sonus://` | Root overview of all available resources and tools |
-| `sonus://models` | All TTS models with capabilities, languages, availability |
+| `sonus://models` | All audio generation models (TTS, music, SFX) with capabilities, languages, availability |
 | `sonus://models/loaded` | Details of all models currently loaded in memory caches |
-| `sonus://voices` | All voices across every engine (104+) with metadata |
+| `sonus://voices` | All voices across every TTS engine (104+) with metadata |
 | `sonus://voices/{model_id}` | Voices for a specific model (e.g. `sonus://voices/kokoro`) |
 | `sonus://stt_models` | All STT models with availability and install instructions |
-| `sonus://engines` | All engines (TTS + STT) with model summaries |
+| `sonus://engines` | All engines (audio generation + STT) with model summaries |
 | `sonus://sfx` | All sound effects with size, duration, format |
 | `sonus://presets` | Saved voice presets |
 | `sonus://outputs` | Recently generated audio files |
@@ -95,7 +95,7 @@ Tools are actions an LLM can invoke. Sonus provides these:
 
 ### `list_models`
 
-List all TTS models. No parameters.
+List all audio generation models. No parameters.
 
 Returns every registered model with its engine, mode, capabilities, languages, and availability status.
 

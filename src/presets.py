@@ -35,6 +35,7 @@ def _list_presets() -> list[dict]:
                 "created_at": data.get("created_at", 0),
                 "updated_at": data.get("updated_at", 0),
                 "preview": _build_preview(config),
+                "size": os.path.getsize(path),
             }
         )
     presets.sort(key=lambda p: p["updated_at"], reverse=True)

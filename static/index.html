@@ -11,7 +11,7 @@
 
   <div class="app-header">
     <h1>Sonus</h1>
-    <span class="subtitle">Multi-engine text-to-speech</span>
+    <span class="subtitle">Multi-engine local audio hub (Speech, Music, SFX, STT)</span>
     <a href="/api-docs" target="_blank" style="margin-left:auto;font-size:0.8rem;color:var(--accent);text-decoration:none;white-space:nowrap">API Docs</a>
     <a href="/mcp-docs/mcp.md" target="_blank" style="margin-left:0.5rem;font-size:0.8rem;color:var(--accent);text-decoration:none;white-space:nowrap">MCP</a>
     <button class="btn btn-sm" style="margin-left:0.5rem" @click="$store.showManage = true">Manage Models</button>
@@ -95,7 +95,10 @@
 <script type="text/x-template" id="voice-panel-template">
   <div class="panel">
     <div class="panel-header">
-      <span>Custom Voices</span>
+      <div class="panel-title-group">
+        <span>Custom Voices</span>
+        <span class="panel-info-icon" v-if="items && items.length > 0" :title="`Total: ${items.length} files (${totalSizeStr})`">&#9432;</span>
+      </div>
       <button class="btn btn-sm" @click="$store.showAddVoice = true">+ Add</button>
     </div>
     <div class="panel-body">
@@ -117,7 +120,10 @@
 <script type="text/x-template" id="sfx-panel-template">
   <div class="panel">
     <div class="panel-header">
-      <span>Sound Effects</span>
+      <div class="panel-title-group">
+        <span>Sound Effects</span>
+        <span class="panel-info-icon" v-if="items && items.length > 0" :title="`Total: ${items.length} files (${totalSizeStr})`">&#9432;</span>
+      </div>
       <button class="btn btn-sm" @click="triggerUpload">+ Add</button>
       <input type="file" ref="sfxUploadInput" style="display:none" accept="audio/*" @change="uploadSFXFile">
     </div>
@@ -141,7 +147,10 @@
 <script type="text/x-template" id="preset-panel-template">
   <div class="panel">
     <div class="panel-header">
-      <span>Presets</span>
+      <div class="panel-title-group">
+        <span>Presets</span>
+        <span class="panel-info-icon" v-if="items && items.length > 0" :title="`Total: ${items.length} presets (${totalSizeStr})`">&#9432;</span>
+      </div>
     </div>
     <div class="panel-body">
       <div v-if="!items.length" class="empty">No presets saved yet.</div>
@@ -171,7 +180,10 @@
 <script type="text/x-template" id="output-panel-template">
   <div class="panel">
     <div class="panel-header">
-      <span>Outputs</span>
+      <div class="panel-title-group">
+        <span>Outputs</span>
+        <span class="panel-info-icon" v-if="$store.outputs && $store.outputs.length > 0" :title="`Total: ${$store.outputs.length} files (${totalSizeStr})`">&#9432;</span>
+      </div>
       <button class="btn btn-sm btn-ghost" @click="clearOutputs" title="Delete all">Clear</button>
     </div>
     <div class="panel-filters" v-if="hasOutputs">
@@ -1082,7 +1094,7 @@
   <div class="modal-overlay" @click.self="close">
     <div class="modal manage-models-modal">
       <div class="modal-header">
-        <h2>Manage Models</h2>
+        <h2>Manage Models<span class="mm-total-size" v-if="totalDownloadedSizeGb > 0">({{ totalDownloadedSizeGb }} GB downloaded)</span></h2>
       </div>
       <div class="modal-body">
         <div class="modal-tabs mm-tabs">

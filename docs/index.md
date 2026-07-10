@@ -1,4 +1,4 @@
-# Sonus Docs
+# Sonus Docs — Multi-Modal Local Audio Hub
 
 [← Back to README](../README.md)
 
@@ -46,8 +46,10 @@
 | `GET /v1/voices` | Who can speak? |
 | `GET /v1/models` | What's installed? |
 | `GET /v1/models/{id}` | Model details |
-| `POST /v1/audio/speech` | OpenAI-compatible TTS — drop-in replacement |
+| `POST /v1/audio/speech` | OpenAI-compatible Speech/Music/SFX generation |
 | `POST /v1/audio/transcriptions` | OpenAI-compatible STT |
 | `GET /v1/stt/models` | Available STT models |
+| `GET /v1/sfx` | List all sound effects in the library |
+| `POST /sfx` | Upload a sound effect file |
 | `../mcp-docs/mcp.md` | MCP (Model Context Protocol) — [docs](mcp.md) |
 | `POST /mcp` | MCP streamable HTTP endpoint |

@@ -210,8 +210,8 @@ def _save_voice_metadata(meta: dict[str, dict]):
 app = FastAPI(
     title="Sonus",
     description=(
-        "Sonus — Speak freely. Multi-engine, offline text-to-speech server "
-        "with OpenAI-compatible TTS and STT endpoints."
+        "Sonus — Speak freely. Multi-engine, offline local audio server "
+        "supporting Speech, Music, SFX, and Speech-to-Text."
     ),
     version="1.0.0",
     docs_url="/api-docs",

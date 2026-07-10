@@ -184,6 +184,47 @@ curl -X POST http://localhost:8000/v1/audio/speech \
   }' --output speech.mp3
 ```
 
+### Text-to-Music & Text-to-SFX Generation
+
+You can use the same `POST /v1/audio/speech` endpoint to generate music and sound effects by specifying a music/SFX model (e.g. `musicgen-small`, `riffusion-v1`, `stable-audio-open-1.0`, or `audiogen-medium`).
+
+#### Mapping parameters for Music/SFX:
+
+| Field | Type | Default | Engine Support / What it does |
+|---|---|---|---|
+| `model` | string | **required** | Music/SFX model ID (e.g. `musicgen-small`, `riffusion-v1`, `stable-audio-open-1.0`, `audiogen-medium`) |
+| `input` | string | **required** | The text prompt describing the music or sound effect to generate (e.g. `"lo-fi hip hop beat with warm vinyl crackle"`) |
+| `voice` | string | `null` | Accepted but ignored by music/SFX engines (you can pass `"default"`) |
+| `duration` | number | *Varies* | Output duration in seconds. Supported by MusicGen/AudioGen (1-30s), Riffusion (1-30s), and Stable Audio (1-47s). |
+| `cfg_weight` | number | *Varies* | Prompt adherence vs. fidelity. Maps to `guidance_scale` for Stable Audio Open. |
+| `seed` | integer | `null` | Random seed for reproducibility |
+
+#### Examples:
+
+**Generate Music (MusicGen):**
+```bash
+curl -X POST http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "musicgen-small",
+    "input": "lo-fi hip hop beat with vinyl crackle",
+    "voice": "default",
+    "duration": 15
+  }' --output music.wav
+```
+
+**Generate Sound Effects (AudioGen):**
+```bash
+curl -X POST http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "audiogen-medium",
+    "input": "thunderstorm with heavy rain",
+    "voice": "default",
+    "duration": 10
+  }' --output thunder.wav
+```
+
 ---
 
 ## POST /v1/audio/transcriptions — OpenAI-compatible STT
@@ -253,6 +294,90 @@ curl http://localhost:8000/v1/stt/models
     }
   ]
 }
+```
+
+---
+
+## Sound effects (SFX) management
+
+### POST /sfx — Upload a sound effect file
+
+Upload a WAV (or any audio format — ffmpeg auto-converts to 24kHz mono WAV). Sound effect files can be listed, played, or embedded in SSML via the `<audio>` tag.
+
+```bash
+curl -X POST http://localhost:8000/sfx \
+  -F "file=@explosion.wav" \
+  -F "name=explosion"
+```
+
+```json
+{
+  "name": "explosion.wav",
+  "duration": 1.5,
+  "size": 72000,
+  "created_at": 1719000000.0,
+  "url": "/sfx/explosion.wav"
+}
+```
+
+Max upload size: 50 MB. Returns 409 if the file already exists.
+
+### GET /v1/sfx — List all sound effects
+
+Returns a list of all sound effect files in the `sfx/` directory.
+
+```bash
+curl http://localhost:8000/v1/sfx
+```
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "name": "explosion.wav",
+      "size": 72000,
+      "duration": 1.5,
+      "created_at": 1719000000.0,
+      "url": "/sfx/explosion.wav"
+    }
+  ]
+}
+```
+
+### GET /sfx/{name} — Get a sound effect file
+
+Download a sound effect file from the local library.
+
+```bash
+curl http://localhost:8000/sfx/explosion.wav --output explosion.wav
+```
+
+### PUT /sfx/{name} — Rename an SFX file
+
+Rename a sound effect file in the library.
+
+```bash
+curl -X PUT "http://localhost:8000/sfx/explosion.wav?new_name=boom"
+```
+
+```json
+{
+  "name": "boom.wav",
+  "url": "/sfx/boom.wav"
+}
+```
+
+### DELETE /sfx/{name} — Delete a sound effect file
+
+Delete a sound effect from the library.
+
+```bash
+curl -X DELETE http://localhost:8000/sfx/explosion.wav
+```
+
+```json
+{"deleted": "explosion.wav"}
 ```
 
 ---

@@ -53,6 +53,23 @@ body {
   justify-content: space-between;
   flex-shrink: 0;
 }
+.panel-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.panel-info-icon {
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: help;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  text-transform: none;
+}
+.panel-info-icon:hover {
+  opacity: 1;
+  color: var(--accent);
+}
 .panel-body { flex: 1; overflow-y: auto; padding: 0.5rem; min-height: 0; }
 
 /* Buttons */
@@ -477,6 +494,12 @@ input[type="range"] {
 .manage-models-modal { max-width: 960px; width: min(60vw, 960px); height: 80vh; max-height: 80vh; }
 .manage-models-modal .modal-body { overflow-y: auto; }
 .manage-models-modal .mm-tabs { margin: -1rem -1.5rem 1rem; }
+.manage-models-modal .mm-total-size {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: normal;
+  margin-left: 0.5rem;
+}
 
 .mm-group { margin-bottom: 0.25rem; }
 

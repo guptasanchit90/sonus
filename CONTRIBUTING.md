@@ -36,7 +36,7 @@ Download models for at least one engine (see `docs/engines/`) and you're off.
 
 ## How it's built
 
-A FastAPI server that wraps multiple TTS and STT engines behind a single HTTP API. TTS engines live in `src/engines/` and sign the `TTSEngine` protocol (`src/engines/base.py`). STT engines live in `src/stt/` and sign the `STTEngine` protocol (`src/stt/base.py`).
+A FastAPI server that wraps multiple audio generation (TTS, music, SFX) and transcription (STT) engines behind a single HTTP API. Audio generation engines live in `src/engines/` and implement the `TTSEngine` protocol (`src/engines/base.py`). STT engines live in `src/stt/` and implement the `STTEngine` protocol (`src/stt/base.py`).
 
 ```
 server.py              # FastAPI app — routing, entry point
@@ -50,6 +50,11 @@ src/
     chatterbox.py      # Chatterbox Turbo via mlx-audio (Apple Silicon)
     kokoro.py          # Kokoro-82M via kokoro-onnx (ONNX)
     piper.py           # Piper via piper-tts (ONNX)
+    cosyvoice.py       # CosyVoice2 (PyTorch)
+    fish_speech.py     # Fish Speech (PyTorch/MLX)
+    musicgen.py        # MusicGen & AudioGen (MLX)
+    riffusion.py       # Riffusion (PyTorch/Diffusers)
+    stable_audio.py    # Stable Audio Open (PyTorch/Diffusers)
     __init__.py        # Imports everything so @register fires
   stt/
     base.py            # STTEngine protocol + @register decorator + BaseSTTEngine mixin
@@ -60,8 +65,9 @@ static/
   app.js               # Web UI logic — components, store, app
 models/                # Downloaded models (gitignored)
 voices/                # Your WAV samples for cloning (gitignored)
+sfx/                   # Sound effects database (gitignored except .gitkeep)
 outputs/               # Generated audio lands here (gitignored)
-docs/                  # API and engine docs
+docs/                  # API, engine, development, and MCP docs
 ```
 
 ---
@@ -487,6 +493,7 @@ Add an entry to `list_models()`:
 - Clone voices → `voices/*.wav` (gitignored except `.gitkeep`)
 - Speaker embeddings → `voices/*.npy` (cached, gitignored)
 - Staged voices → `voices/.staging/*.wav` (pre-save preview)
+- Sound effects → `sfx/*.wav` (gitignored except `.gitkeep`)
 - Piper models → `models/piper/<name>.onnx` + `<name>.onnx.json`
 - Kokoro models → `models/kokoro/kokoro-v1.0.onnx` + `voices-v1.0.bin`
 - Qwen models → `models/qwen/<folder>/` (HF snapshot layout)
@@ -537,6 +544,11 @@ pyright server.py src/
 | `kokoro-onnx` | `kokoro.py` | Kokoro ONNX |
 | `piper-tts` | `piper.py` | Piper ONNX |
 | `numpy`, `soundfile` | `kokoro.py` | Audio arrays |
+| `mlx-audiocraft` | `musicgen.py` | MusicGen and AudioGen model inference |
+| `diffusers` | `riffusion.py`, `stable_audio.py` | Spec/latent diffusion pipeline |
+| `torch` | `cosyvoice.py`, `fish_speech.py`, diffusion engines | PyTorch inference backend |
+| `librosa` | `riffusion.py` | Audio loading and mel spectrogram math |
+| `accelerate` | diffusion engines | Fast PyTorch GPU scaling |
 | `transformers`, `tokenizers` | `mlx-audio`, `mlx-whisper` (transitive) | Tokenisation |
 | `huggingface_hub` | `mlx-audio`, `mlx-whisper` (transitive) | Model downloads |
 

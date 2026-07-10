@@ -1,6 +1,6 @@
 # Sonus — Speak freely
 
-Multi-engine, offline text-to-speech (+ speech-to-text) on your Mac. No cloud. No API keys. No one listening.
+Multi-engine, offline audio hub (Speech, Music, SFX, STT) on your Mac. No cloud. No API keys. No one listening.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](.python-version)
@@ -17,9 +17,9 @@ Runs on [MLX](https://github.com/ml-explore/mlx) and [ONNX Runtime](https://onnx
 
 ## What is this?
 
-Sonus turns text into speech (and speech into text) using whatever engine you throw at it. Five engines, one API. Run it locally, hit the endpoint, get audio back. Zero data leaves your machine.
+Sonus turns text into speech/music/SFX (and speech into text) using whatever engine you throw at it. Multiple engines, one unified API. Run it locally, hit the endpoint, get audio back. Zero data leaves your machine.
 
-Think of it as a **local speech hub** — TTS via Qwen3, Kokoro, Piper, and Chatterbox Turbo; STT via Whisper MLX. All offline, all local.
+Think of it as a **local audio hub** — TTS via Qwen3, Kokoro, Piper, Chatterbox, CosyVoice, and Fish Speech; Speech-to-Music/SFX via MusicGen, Riffusion, and Stable Audio Open; and STT via Whisper. All offline, all local.
 
 ---
 
@@ -35,19 +35,29 @@ No Mac? No problem. Kokoro and Piper (ONNX engines) work on any platform. Click 
 
 ## Engines at a glance
 
-| Engine | Framework | Voices | Vibe |
+| Engine | Framework | Type / Modality | Vibe / Capabilities |
 |---|---|---|---|
-| **Qwen3** | MLX | 11 built-in + custom cloning | Premium quality. Sounds almost human. 🍎 Apple Silicon only. |
-| **Kokoro** | ONNX | 54 voices, 9 languages | The multilingual workhorse. Fast, reliable. ✅ Cross-platform. |
-| **Piper** | ONNX | 40+ languages, ~80 MB/voice | The speed demon. 100+ languages, tiny footprint. ✅ Cross-platform. |
-| **Chatterbox Turbo** | MLX | Voice cloning only | Best-in-class cloning. Feed it a WAV, get a twin. 🍎 Apple Silicon only. |
-| **Whisper MLX** | MLX | 5 model sizes (tiny→large-v3) | Speech-to-text. Transcribe anything. 🍎 Apple Silicon only. |
+| **Qwen3** | MLX | TTS | Premium quality. Sounds almost human. 🍎 Apple Silicon only. |
+| **Kokoro** | ONNX | TTS | The multilingual workhorse. Fast, reliable. ✅ Cross-platform. |
+| **Piper** | ONNX | TTS | The speed demon. 100+ languages, tiny footprint. ✅ Cross-platform. |
+| **Chatterbox Turbo** | MLX | TTS | Best-in-class cloning. Feed it a WAV, get a twin. 🍎 Apple Silicon only. |
+| **CosyVoice2** | PyTorch | TTS | Zero-shot TTS, emotion/prosody control. ✅ Cross-platform. |
+| **Fish Speech** | PyTorch / MLX | TTS | Multilingual TTS with voice cloning. ✅ Cross-platform / 🍎. |
+| **MusicGen / AudioGen** | MLX | Music / SFX | Text-to-music & text-to-sfx on GPU. 🍎 Apple Silicon only. |
+| **Riffusion** | Diffusers (PyTorch) | Music | Fast text-to-music via spectrogram diffusion. ✅ Cross-platform. |
+| **Stable Audio Open** | Diffusers (PyTorch) | Music / SFX | High-quality stereo audio, up to 47 seconds. ✅ Cross-platform. |
+| **Whisper MLX** | MLX | STT | Speech-to-text. Transcribe anything. 🍎 Apple Silicon only. |
 
 More on each engine:
 - [Qwen3](docs/engines/qwen.md) — custom voice, voice design, voice cloning
 - [Kokoro](docs/engines/kokoro.md) — 54 built-in voices, 9 languages
 - [Piper](docs/engines/piper.md) — fastest inference, widest language support
 - [Chatterbox Turbo](docs/engines/chatterbox.md) — voice cloning via MLX
+- [CosyVoice2](docs/engines/cosyvoice.md) — zero-shot TTS and prosody control
+- [Fish Speech](docs/engines/fish_speech.md) — multilingual TTS with voice cloning
+- [MusicGen / AudioGen](docs/engines/musicgen.md) — text-to-music and text-to-sfx
+- [Riffusion](docs/engines/riffusion.md) — text-to-music via diffusion
+- [Stable Audio Open](docs/engines/stable_audio.md) — stereo music and SFX generation
 - [Whisper MLX](docs/engines/whisper.md) — speech-to-text via MLX
 - [API Reference](docs/api.md) — full endpoint docs
 
@@ -141,18 +151,24 @@ curl -X POST http://localhost:8000/v1/audio/transcriptions \
 server.py               # FastAPI — the brain
 src/
   engines/
-    base.py             # The contract every TTS engine signs
+    base.py             # The contract every TTS/generation engine signs
     qwen.py             # Qwen3 (MLX)
     chatterbox.py       # Chatterbox Turbo (MLX)
     kokoro.py           # Kokoro (ONNX)
     piper.py            # Piper (ONNX)
+    cosyvoice.py        # CosyVoice2 (PyTorch)
+    fish_speech.py      # Fish Speech (PyTorch/MLX)
+    musicgen.py         # MusicGen & AudioGen (MLX)
+    riffusion.py        # Riffusion (PyTorch/Diffusers)
+    stable_audio.py     # Stable Audio Open (PyTorch/Diffusers)
   stt/
     base.py             # The contract every STT engine signs
     whisper_mlx.py      # Whisper via MLX (Apple Silicon)
 static/                 # Web UI — Vue 3 (CDN), no build step
-docs/                   # Docs that don't suck
+docs/                   # API, engine, development, and MCP docs
 models/                 # Downloaded models (gitignored)
 voices/                 # WAVs for voice cloning
+sfx/                    # Sound effects database
 outputs/                # Generated audio files
 ```
 
@@ -174,6 +190,13 @@ outputs/                # Generated audio files
 | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) | TTS engine | Multilingual, ONNX-powered |
 | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) | TTS engine | Premium quality, MLX-powered |
 | [Chatterbox Turbo](https://huggingface.co/mlx-community/Chatterbox-Turbo-TTS-fp16) | TTS engine | Cloning specialist, MLX-powered |
+| [CosyVoice](https://github.com/FunAudioLLM/CosyVoice) | TTS engine | Zero-shot multilingual TTS |
+| [Fish Speech](https://github.com/fishaudio/fish-speech) | TTS engine | Multilingual TTS and voice cloning |
+| [mlx-audiocraft](https://github.com/theashishmaurya/mlx-audiocraft) | Music/SFX engine | Loads MusicGen & AudioGen models |
+| [diffusers](https://github.com/huggingface/diffusers) | Audio diffusion | Powers Riffusion and Stable Audio Open |
+| [torch](https://pytorch.org) | ML framework | Backend for PyTorch engines (CosyVoice, Fish Speech, Diffusers) |
+| [librosa](https://librosa.org) | Audio processing | Mel spectrogram conversion for Riffusion |
+| [accelerate](https://github.com/huggingface/accelerate) | PyTorch hardware acceleration | Speeds up diffusion model inference |
 | [mlx-whisper](https://github.com/ml-explore/mlx-whisper) | STT engine | Speech-to-text, MLX-powered |
 | [Whisper](https://github.com/openai/whisper) | STT model | OpenAI's transcription model |
 
