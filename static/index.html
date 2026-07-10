@@ -49,6 +49,9 @@
     <transition name="modal">
       <confirm-reset-modal v-if="$store.showResetConfirm"></confirm-reset-modal>
     </transition>
+    <transition name="modal">
+      <save-output-modal v-if="$store.showSaveOutput"></save-output-modal>
+    </transition>
   </teleport>
 
 </div>
@@ -73,6 +76,7 @@
         <a v-if="showDownload" class="player-dl" :href="item.url" download title="Download">&#x2193;</a>
         <button v-if="showRename" class="icon-btn" @click="$emit('rename', item.name)" title="Rename">&#9998;</button>
         <button v-if="showDetail" class="icon-btn" @click="$emit('detail', item)" title="Show details">&#9432;</button>
+        <button v-if="showSave" class="icon-btn save-trigger" @click="$emit('save', item)" title="Save">Save</button>
         <button v-if="showDelete" class="icon-btn danger" @click="$emit('delete', item.name)" title="Delete">&times;</button>
       </div>
     </div>
@@ -218,7 +222,35 @@
             </div>
           </div>
         </template>
-        <audio-player v-else :item="item" show-detail show-delete @detail="showDetail" @delete="deleteOutput"></audio-player>
+        <audio-player v-else :item="item" show-save show-detail show-delete @detail="showDetail" @delete="deleteOutput" @save="openSaveModal"></audio-player>
+      </div>
+    </div>
+  </div>
+</script>
+
+<script type="text/x-template" id="save-output-modal-template">
+  <div class="modal-overlay" @click.self="close">
+    <div class="modal save-output-modal">
+      <div class="modal-header">
+        <h2>Save Output</h2>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="save-output-name">Name</label>
+          <input type="text" id="save-output-name" v-model="saveName"
+                 placeholder="Enter a name for the saved file"
+                 @keydown.enter="saveAsSfx" ref="nameInput">
+        </div>
+        <div class="save-output-info">
+          <div class="save-output-info-row"><span class="save-output-label">File:</span> {{ item.name }}</div>
+          <div class="save-output-info-row" v-if="item.params && item.params.model"><span class="save-output-label">Model:</span> {{ item.params.model }}</div>
+        </div>
+        <div class="status-msg" :class="statusClass" v-if="status">{{ status }}</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" @click="close">Cancel</button>
+        <button type="button" class="btn" @click="saveAsSfx" :disabled="saving">Save as SFX</button>
+        <button type="button" class="btn" @click="saveAsVoice" :disabled="saving || !canSaveAsVoice">Save as Custom Voice</button>
       </div>
     </div>
   </div>

@@ -91,6 +91,12 @@ const store = reactive({
   recordStatus: '',
   recordStatusClass: '',
 
+  // Save output modal
+  showSaveOutput: false,
+  saveOutputItem: null,
+  saveOutputStatus: '',
+  saveOutputStatusClass: '',
+
   // Loading state
   loading: false,
   outputsLoading: true,

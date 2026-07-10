@@ -34,9 +34,10 @@ comps['audio-player'] = {
     showDelete: Boolean,
     showDetail: Boolean,
     showDownload: Boolean,
+    showSave: Boolean,
     primaryLabel: String,
   },
-  emits: ['delete', 'rename', 'detail'],
+  emits: ['delete', 'rename', 'detail', 'save'],
   data() {
     return {
       playing: false,
@@ -422,6 +423,12 @@ comps['output-panel'] = {
       this.$store.modalOut = out;
       this.$store.regenParams = out.params || null;
       this.$store.showParams = true;
+    },
+    openSaveModal(item) {
+      this.$store.saveOutputItem = item;
+      this.$store.saveOutputStatus = '';
+      this.$store.saveOutputStatusClass = '';
+      this.$store.showSaveOutput = true;
     },
     openBatchDetail(group) {
       this.$store.batchDetailItems = group.items;
@@ -1908,6 +1915,118 @@ comps['confirm-reset-modal'] = {
       }
     },
     close() { this.$store.showResetConfirm = false; },
+  },
+};
+
+comps['save-output-modal'] = {
+  template: '#save-output-modal-template',
+  data() {
+    return {
+      saveName: '',
+      saving: false,
+    };
+  },
+  computed: {
+    item() { return this.$store.saveOutputItem; },
+    status() { return this.$store.saveOutputStatus; },
+    statusClass() { return this.$store.saveOutputStatusClass; },
+    canSaveAsVoice() {
+      if (!this.item || !this.item.params || !this.item.params.model) return false;
+      const m = this.$store.models.find(mdl => mdl.id === this.item.params.model);
+      return !(m && (m.capabilities || []).some(c => c === 'text_to_music' || c === 'text_to_sfx'));
+    },
+  },
+  mounted() {
+    if (this.item) {
+      this.saveName = this.item.name.replace(/\.\w+$/, '');
+    }
+    this.$nextTick(() => {
+      const inp = this.$el.querySelector('#save-output-name');
+      if (inp) inp.focus();
+    });
+  },
+  methods: {
+    close() { this.$store.showSaveOutput = false; },
+    async _fetchWithTimeout(url, ms = 30000) {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), ms);
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(id);
+      }
+    },
+    _setStatus(msg, cls = '') {
+      this.$store.saveOutputStatus = msg;
+      this.$store.saveOutputStatusClass = cls;
+    },
+    async saveAsVoice() {
+      const name = this.saveName.trim();
+      if (!name) { this._setStatus('Please enter a name.', 'error'); return; }
+      const item = this.item;
+      if (!item) return;
+      this.saving = true;
+      try {
+        this._setStatus('Downloading output audio…');
+        const blob = await this._fetchWithTimeout(item.url).then(r => { if (!r.ok) throw new Error('Failed to fetch output'); return r.blob(); });
+
+        this._setStatus('Uploading to staging area…');
+        const fd = new FormData();
+        fd.append('file', blob, item.name);
+        fd.append('name', name);
+        const stage = await this._fetchWithTimeout('/voice/stage', 60000).then(r => {
+          if (!r.ok) throw new Error(r.status === 409 ? 'Voice "' + name + '.wav" already exists' : 'Upload failed');
+          return r.json();
+        });
+
+        this._setStatus('Saving as custom voice…');
+        await this._fetchWithTimeout('/voice/stage/' + encodeURIComponent(stage.name) + '/save').then(r => {
+          if (!r.ok) throw new Error('Failed to finalize voice');
+        });
+
+        this._setStatus('Refreshing voice list…');
+        await fetch('/v1/voices').then(r => r.json()).then(d => {
+          if (d && d.data) { applyVoiceData(this.$store, d.data); }
+        }).catch(() => {});
+
+        this._setStatus('Saved as custom voice!', 'success');
+        setTimeout(() => this.close(), 1200);
+      } catch (e) {
+        this._setStatus(e.name === 'AbortError' ? 'Request timed out — try a shorter file' : e.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+    async saveAsSfx() {
+      const name = this.saveName.trim();
+      if (!name) { this._setStatus('Please enter a name.', 'error'); return; }
+      const item = this.item;
+      if (!item) return;
+      this.saving = true;
+      try {
+        this._setStatus('Downloading output audio…');
+        const blob = await this._fetchWithTimeout(item.url).then(r => { if (!r.ok) throw new Error('Failed to fetch output'); return r.blob(); });
+
+        this._setStatus('Uploading as SFX…');
+        const fd = new FormData();
+        fd.append('file', blob, item.name);
+        fd.append('name', name);
+        const res = await this._fetchWithTimeout('/sfx', 60000).then(r => {
+          if (!r.ok) throw new Error(r.status === 409 ? 'SFX "' + name + '.wav" already exists' : 'Upload failed');
+          return r.json();
+        });
+
+        this.$store.sfxDetails.unshift(res);
+        this.$store.sfx.push(res.name);
+
+        this._setStatus('Saved as SFX!', 'success');
+        setTimeout(() => this.close(), 1200);
+      } catch (e) {
+        this._setStatus(e.name === 'AbortError' ? 'Request timed out — try a shorter file' : e.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
   },
 };
 
