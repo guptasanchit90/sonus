@@ -631,11 +631,10 @@ def _openai_to_internal(req: OpenAIRequest, manifest: dict) -> dict:
         elif "speaker" in caps or "voice_blend" in caps:
             d["speaker_name"] = req.voice
 
-    if "emotion" in caps:
-        if req.exaggeration is not None:
-            d["exaggeration"] = req.exaggeration
-        if req.cfg_weight is not None:
-            d["cfg_weight"] = req.cfg_weight
+    if req.exaggeration is not None:
+        d["exaggeration"] = req.exaggeration
+    if req.cfg_weight is not None:
+        d["cfg_weight"] = req.cfg_weight
 
     return d
 
@@ -1757,14 +1756,14 @@ async def openai_speech(req: OpenAIRequest, request: Request):
 
     x_seed_header = request.headers.get("x-seed")
     if x_seed_header is not None:
-      try:
-        effective_seed = int(x_seed_header)
-      except ValueError:
-        effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
+        try:
+            effective_seed = int(x_seed_header)
+        except ValueError:
+            effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
     elif req.seed is not None:
-      effective_seed = req.seed
+        effective_seed = req.seed
     else:
-      effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
+        effective_seed = int(time.time() * 1000) & 0xFFFFFFFF
     request_dict["effective_seed"] = effective_seed
 
     is_ssml_input = req.input.strip().startswith("<speak")
@@ -2134,5 +2133,6 @@ app.mount("/", StaticFiles(directory="static", html=True), name="ui")
 
 if __name__ == "__main__":
     import os
+
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False, backlog=4096)

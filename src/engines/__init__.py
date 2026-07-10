@@ -9,3 +9,5 @@ from src.engines.piper import PiperEngine as PiperEngine
 from src.engines.qwen import QwenEngine as QwenEngine
 from src.engines.riffusion import RiffusionEngine as RiffusionEngine
 from src.engines.stable_audio import StableAudioEngine as StableAudioEngine
+from src.engines.audioldm import AudioLDMEngine as AudioLDMEngine
+
