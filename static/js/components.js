@@ -2426,12 +2426,13 @@ comps['params-modal'] = {
 comps['manage-models-modal'] = {
   template: '#manage-models-modal-template',
   data() {
-    return { activeTab: 'tts', expanded: {}, sttExpanded: {}, status: '', statusClass: '' };
+    return { activeTab: 'tts', expanded: {}, musicExpanded: {}, sttExpanded: {}, status: '', statusClass: '' };
   },
   computed: {
     groups() {
       const g = {};
       this.$store.models.forEach(m => {
+        if (this._isMusic(m)) return;
         const e = m.engine || 'other';
         if (!g[e]) g[e] = [];
         g[e].push(m);
@@ -2451,7 +2452,7 @@ comps['manage-models-modal'] = {
           const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
           return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
         }, 0);
-        s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10 };
+        s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
       });
       return s;
     },
@@ -2477,7 +2478,34 @@ comps['manage-models-modal'] = {
           const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
           return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
         }, 0);
-        s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10 };
+        s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
+      });
+      return s;
+    },
+    musicGroups() {
+      const g = {};
+      this.$store.models.forEach(m => {
+        if (!this._isMusic(m)) return;
+        const e = m.engine || 'other';
+        if (!g[e]) g[e] = [];
+        g[e].push(m);
+      });
+      return g;
+    },
+    musicEngineNames() {
+      return Object.keys(this.musicGroups).sort();
+    },
+    musicEngineStats() {
+      const s = {};
+      this.musicEngineNames.forEach(eng => {
+        const models = this.musicGroups[eng];
+        const avail = models.filter(m => m.available).length;
+        const gb = models.reduce((sum, m) => {
+          if (!m.size) return sum;
+          const p = m.size.match(/^([\d.]+)\s*(GB|MB)/);
+          return p ? sum + (p[2] === 'GB' ? parseFloat(p[1]) : parseFloat(p[1]) / 1000) : sum;
+        }, 0);
+        s[eng] = { available: avail, total: models.length, totalGb: Math.round(gb * 10) / 10, availClass: avail === 0 ? 'avail-none' : avail < models.length ? 'avail-some' : 'avail-all' };
       });
       return s;
     },
@@ -2487,6 +2515,12 @@ comps['manage-models-modal'] = {
     switchTab(tab) { this.activeTab = tab; },
     toggleEngine(name) {
       this.expanded[name] = !this.expanded[name];
+    },
+    _isMusic(m) {
+      return m.capabilities && (m.capabilities.includes('text_to_music') || m.capabilities.includes('text_to_sfx'));
+    },
+    toggleMusicEngine(name) {
+      this.musicExpanded[name] = !this.musicExpanded[name];
     },
     toggleSttEngine(name) {
       this.sttExpanded[name] = !this.sttExpanded[name];

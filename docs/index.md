@@ -16,6 +16,8 @@
 | **Kokoro** | ONNX | [54 voices, 9 languages, fast](engines/kokoro.md) |
 | **Piper** | ONNX | [100+ languages, blazing fast, tiny models](engines/piper.md) |
 | **Chatterbox Turbo** | MLX (Apple Silicon) | [Best-in-class voice cloning](engines/chatterbox.md) |
+| **Fish Speech** | PyTorch / MLX | [V1.5 + S2 Pro: multilingual TTS with voice cloning](engines/fish_speech.md) |
+| **CosyVoice2** | PyTorch | [Zero-shot TTS, emotion/prosody control, 5 languages](engines/cosyvoice.md) |
 | **MusicGen / AudioGen** | MLX (Apple Silicon) | [Text-to-music & text-to-sfx](engines/musicgen.md) |
 | **Riffusion** | Diffusers (PyTorch) | [Fast text-to-music via spectrogram diffusion](engines/riffusion.md) |
 | **Stable Audio Open** | Diffusers (PyTorch) | [High-quality stereo audio, up to 47 s](engines/stable_audio.md) |

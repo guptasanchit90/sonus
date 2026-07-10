@@ -1055,6 +1055,7 @@
       <div class="modal-body">
         <div class="modal-tabs mm-tabs">
           <button class="modal-tab" :class="{ active: activeTab === 'tts' }" @click="switchTab('tts')">TTS</button>
+          <button class="modal-tab" :class="{ active: activeTab === 'music' }" @click="switchTab('music')">Music/SFX</button>
           <button class="modal-tab" :class="{ active: activeTab === 'stt' }" @click="switchTab('stt')">STT</button>
         </div>
 
@@ -1065,7 +1066,7 @@
               <span class="mm-chevron" :class="{ open: expanded[eng] }">&#9654;</span>
               <span class="mm-engine-name">{{ eng }}</span>
               <span class="mm-engine-summary" v-if="engineStats[eng]">
-                <span class="mm-summary-avail">{{ engineStats[eng].available }}/{{ engineStats[eng].total }} available</span>
+                <span class="mm-summary-avail" :class="engineStats[eng].availClass">{{ engineStats[eng].available }}/{{ engineStats[eng].total }} available</span>
                 <span class="mm-summary-size" v-if="engineStats[eng].totalGb">~{{ engineStats[eng].totalGb }} GB</span>
               </span>
               <span class="mm-engine-count">{{ groups[eng].length }} model(s)</span>
@@ -1144,13 +1145,83 @@
               <span class="mm-chevron" :class="{ open: sttExpanded[eng] }">&#9654;</span>
               <span class="mm-engine-name">{{ eng }}</span>
               <span class="mm-engine-summary" v-if="sttEngineStats[eng]">
-                <span class="mm-summary-avail">{{ sttEngineStats[eng].available }}/{{ sttEngineStats[eng].total }} available</span>
+                <span class="mm-summary-avail" :class="sttEngineStats[eng].availClass">{{ sttEngineStats[eng].available }}/{{ sttEngineStats[eng].total }} available</span>
                 <span class="mm-summary-size" v-if="sttEngineStats[eng].totalGb">~{{ sttEngineStats[eng].totalGb }} GB</span>
               </span>
               <span class="mm-engine-count">{{ sttGroups[eng].length }} model(s)</span>
             </div>
             <div v-if="sttExpanded[eng]" class="mm-models">
               <div v-for="item in sttGroups[eng]" :key="item.id" class="mm-card">
+                <div class="mm-card-head">
+                  <span class="mm-status" :class="item.available ? 'available' : 'missing'">
+                    {{ item.available ? '\u2713' : '\u2717' }}
+                  </span>
+                  <span class="mm-name">{{ item.name }}</span>
+                  <span class="mm-size" v-if="item.size">{{ item.size }}</span>
+                </div>
+                <div class="mm-desc" v-if="item.description">{{ item.description }}</div>
+                <div class="mm-url" v-if="item.install && item.install.url">
+                  <a :href="item.install.url" target="_blank" rel="noopener">{{ item.install.source || 'Source' }}</a>
+                </div>
+                <div class="mm-id">ID: <code>{{ item.id }}</code> &middot; Model: <code>{{ item.model }}</code></div>
+
+                <div class="mm-tags" v-if="item.capabilities && item.capabilities.length">
+                  <span class="mm-tag" v-for="cap in item.capabilities" :key="cap">{{ cap }}</span>
+                </div>
+
+                <div class="mm-langs" v-if="item.languages && item.languages.length">
+                  Languages: {{ item.languages.join(', ') }}
+                </div>
+
+                <div v-if="item.install && item.install.commands && item.install.commands.length" class="mm-cmds">
+                  <div class="mm-cmds-label">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+                    Download
+                  </div>
+                  <div class="mm-cmd" v-for="cmd in item.install.commands" :key="cmd">
+                    <code>{{ cmd }}</code>
+                    <button class="mm-copy" @click="copyCmd(cmd)">Copy</button>
+                  </div>
+                </div>
+
+                <div v-if="derivedRemove(item)" class="mm-cmds mm-cmds-remove">
+                  <div class="mm-cmds-label">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    Remove
+                  </div>
+                  <div class="mm-cmd" v-for="cmd in derivedRemove(item)" :key="cmd">
+                    <code>{{ cmd }}</code>
+                    <button class="mm-copy" @click="copyCmd(cmd)">Copy</button>
+                  </div>
+                </div>
+
+                <div class="mm-actions">
+                  <template v-if="item.install && item.install.commands && item.install.commands.length">
+                    <button v-if="!item.available" class="btn btn-sm" @click="confirmDownload(item)">Download</button>
+                    <button v-if="item.available" class="btn btn-sm btn-danger" @click="confirmRemove(item)">Remove</button>
+                    <button class="btn btn-sm btn-ghost" @click="copyAll(item)">Copy All</button>
+                  </template>
+                  <span v-else class="mm-na">No install info</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template v-if="activeTab === 'music'">
+          <div v-if="!musicEngineNames.length" class="empty">No Music/SFX models available.</div>
+          <div v-for="eng in musicEngineNames" :key="eng" class="mm-group">
+            <div class="mm-engine-header" @click="toggleMusicEngine(eng)">
+              <span class="mm-chevron" :class="{ open: musicExpanded[eng] }">&#9654;</span>
+              <span class="mm-engine-name">{{ eng }}</span>
+              <span class="mm-engine-summary" v-if="musicEngineStats[eng]">
+                <span class="mm-summary-avail" :class="musicEngineStats[eng].availClass">{{ musicEngineStats[eng].available }}/{{ musicEngineStats[eng].total }} available</span>
+                <span class="mm-summary-size" v-if="musicEngineStats[eng].totalGb">~{{ musicEngineStats[eng].totalGb }} GB</span>
+              </span>
+              <span class="mm-engine-count">{{ musicGroups[eng].length }} model(s)</span>
+            </div>
+            <div v-if="musicExpanded[eng]" class="mm-models">
+              <div v-for="item in musicGroups[eng]" :key="item.id" class="mm-card">
                 <div class="mm-card-head">
                   <span class="mm-status" :class="item.available ? 'available' : 'missing'">
                     {{ item.available ? '\u2713' : '\u2717' }}

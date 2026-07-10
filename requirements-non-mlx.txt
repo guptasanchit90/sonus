@@ -21,6 +21,10 @@ faster-whisper==1.1.1
 # ── Model loading ────────────────────────────────────────────────────────────
 huggingface_hub==1.3.4
 
+# ── TTS engines (Fish Speech, CosyVoice2) ────────────────────────────────────
+# fish-speech>=1.5.0
+# cosyvoice>=2.0.0
+
 # ── Diffusion-based audio engines (Riffusion, Stable Audio Open) ──────────────
 diffusers>=0.30.0
 accelerate>=0.30.0

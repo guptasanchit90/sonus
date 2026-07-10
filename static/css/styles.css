@@ -501,6 +501,10 @@ input[type="range"] {
 }
 .mm-summary-size { color: var(--accent); font-weight: 500; }
 
+.mm-summary-avail.avail-all { color: var(--success); }
+.mm-summary-avail.avail-some { color: var(--warning); }
+.mm-summary-avail.avail-none { color: var(--danger); }
+
 .mm-engine-count {
   font-size: 0.6rem; color: var(--muted);
   background: var(--surface); padding: 0.1rem 0.4rem; border-radius: 3px;
