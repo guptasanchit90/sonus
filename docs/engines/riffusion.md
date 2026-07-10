@@ -6,12 +6,12 @@ Text-to-music generation via spectrogram diffusion. Riffusion fine-tunes Stable 
 
 | Model Key | HF Repo | Size | Capabilities |
 |---|---|---|---|
-| `riffusion-v1` | `riffusion/riffusion-model-v1` | ~2.5 GB | text-to-music |
+| `riffusion-v1` | `GitMylo/riffusion-model-v1-small` | ~2.5 GB | text-to-music |
 
 ## Download
 
 ```bash
-hf download riffusion/riffusion-model-v1 --local-dir models/riffusion/riffusion-v1
+hf download GitMylo/riffusion-model-v1-small --local-dir models/riffusion/riffusion-v1
 ```
 
 ## Install Dependencies

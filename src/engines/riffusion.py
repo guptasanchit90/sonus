@@ -36,7 +36,7 @@ MODELS_DIR = os.path.join(os.getcwd(), "models", "riffusion")
 
 _MODELS: dict[str, dict] = {
     "riffusion-v1": {
-        "hf": "riffusion/riffusion-model-v1",
+        "hf": "GitMylo/riffusion-model-v1-small",
         "name": "Riffusion v1",
         "description": "Spectrogram diffusion — fast text-to-music via SD fine-tune",
         "size": "2.5 GB",
@@ -58,7 +58,7 @@ _DEFAULT_STEPS = 50
 
 _install_commands: dict[str, list[str]] = {
     "riffusion-v1": [
-        "hf download riffusion/riffusion-model-v1 --local-dir models/riffusion/riffusion-v1",
+        "hf download GitMylo/riffusion-model-v1-small --local-dir models/riffusion/riffusion-v1",
     ],
 }
 
