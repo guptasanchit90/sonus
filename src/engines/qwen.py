@@ -14,6 +14,18 @@ import soundfile as sf
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+# Patch transformers warning bug for Qwen model tokenizers
+try:
+    from transformers.tokenization_utils_tokenizers import TokenizersBackend
+
+    setattr(
+        TokenizersBackend,
+        "_patch_mistral_regex",
+        classmethod(lambda cls, tokenizer, *args, **kwargs: tokenizer),
+    )
+except ImportError:
+    pass
+
 logger = logging.getLogger("qwen")
 
 
