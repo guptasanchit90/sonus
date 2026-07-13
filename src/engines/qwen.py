@@ -32,11 +32,12 @@ logger = logging.getLogger("qwen")
 def _sanitize_text(text: str) -> str:
     if not text:
         return text
-    # Clean up standard and full-width Chinese commas to mitigate empty space loops
-    text = text.replace(",", " ").replace("，", " ")
-    # Replace multiple spaces with a single space
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    text = re.sub(
+        r", (it|this|that|there|we|they|he|she|I|you)\b",
+        r" \1",
+        text,
+    )
+    return text
 
 
 _MLX_AVAILABLE = False
@@ -422,31 +423,43 @@ class QwenEngine(BaseEngine):
                     ),
                 )
 
+            if mode == "clone":
+                # Split text by punctuation to mitigate comma looping (clone mode only)
+                raw_parts = re.split(r"([,，.;；!！?？\n])", text)
+                parts = [p for p in raw_parts if p]
+
+                sub_segments = []
+                for i, part in enumerate(parts):
+                    if part in (",", "，", ";", "；", ".", "。", "!", "！", "?", "？", "\n"):
+                        continue
+
+                    next_punc = ""
+                    if i + 1 < len(parts) and parts[i + 1] in (
+                        ",",
+                        "，",
+                        ";",
+                        "；",
+                        ".",
+                        "。",
+                        "!",
+                        "！",
+                        "?",
+                        "？",
+                        "\n",
+                    ):
+                        next_punc = parts[i + 1]
+
+                    clean_part = part.strip()
+                    if clean_part:
+                        sub_segments.append((clean_part, next_punc))
+
+                if not sub_segments and text.strip():
+                    sub_segments = [(text.strip(), "")]
+            else:
+                sub_segments = []
+
             try:
-                text = _sanitize_text(text)
-
-                if mode == "custom":
-                    generate_audio(
-                        model=model,
-                        text=text,
-                        voice=request.get("speaker_name") or "Vivian",
-                        instruct=request.get("voice_description") or "Normal tone",
-                        speed=speed,
-                        temperature=temperature,
-                        output_path=tmp_dir,
-                    )
-
-                elif mode == "design":
-                    generate_audio(
-                        model=model,
-                        text=text,
-                        instruct=request["voice_description"],
-                        speed=speed,
-                        temperature=temperature,
-                        output_path=tmp_dir,
-                    )
-
-                elif mode == "clone":
+                if mode == "clone":
                     voice_path = resolve_voice(request["sample_voice_file"])
                     assert voice_path is not None
 
@@ -462,6 +475,9 @@ class QwenEngine(BaseEngine):
                         with open(txt_path, "r", encoding="utf-8") as fh:
                             ref_text = fh.read().strip() or None
                     if ref_text:
+                        # Clean up standard and full-width commas to prevent empty space loops
+                        ref_text = ref_text.replace(",", " ").replace("，", " ")
+                        ref_text = re.sub(r"\s+", " ", ref_text).strip()
                         ref_text = _sanitize_text(ref_text)
                     if not ref_text:
                         name = request["sample_voice_file"]
@@ -473,20 +489,55 @@ class QwenEngine(BaseEngine):
                         )
 
                     embedding = _get_or_compute_speaker_embedding(model, voice_path)
-                    _inject_speaker_embedding(model, embedding)
 
-                    try:
+                    for idx, (clean_part, next_punc) in enumerate(sub_segments):
+                        # Clean up standard and full-width commas to prevent empty space loops
+                        clean_part = clean_part.replace(",", " ").replace("，", " ")
+                        clean_part = re.sub(r"\s+", " ", clean_part).strip()
+                        clean_part = _sanitize_text(clean_part)
+                        if not clean_part:
+                            continue
+
+                        file_prefix = f"sub_{idx}"
+
+                        _inject_speaker_embedding(model, embedding)
+                        try:
+                            generate_audio(
+                                model=model,
+                                text=clean_part,
+                                ref_audio=ref_wav,
+                                ref_text=ref_text,
+                                speed=speed,
+                                temperature=temperature,
+                                output_path=tmp_dir,
+                                file_prefix=file_prefix,
+                            )
+                        finally:
+                            _restore_speaker_embedding(model)
+
+                else:
+                    # Non-cloning modes (custom, design) generate in a single pass as before
+                    sanitized_text = _sanitize_text(text)
+                    if mode == "custom":
                         generate_audio(
                             model=model,
-                            text=text,
-                            ref_audio=ref_wav,
-                            ref_text=ref_text,
+                            text=sanitized_text,
+                            voice=request.get("speaker_name") or "Vivian",
+                            instruct=request.get("voice_description") or "Normal tone",
                             speed=speed,
                             temperature=temperature,
                             output_path=tmp_dir,
                         )
-                    finally:
-                        _restore_speaker_embedding(model)
+
+                    elif mode == "design":
+                        generate_audio(
+                            model=model,
+                            text=sanitized_text,
+                            instruct=request["voice_description"],
+                            speed=speed,
+                            temperature=temperature,
+                            output_path=tmp_dir,
+                        )
 
             except HTTPException:
                 raise
@@ -506,25 +557,64 @@ class QwenEngine(BaseEngine):
 
         wav_path = os.path.join(tmp_dir, "audio.wav")
 
-        def _get_seq(f: str) -> int:
-            m = re.search(r"(\d+)", f)
-            return int(m.group(1)) if m else 0
-
-        segments = sorted(
-            (f for f in os.listdir(tmp_dir) if re.match(r"audio_\d+\.wav$", f)),
-            key=_get_seq,
-        )
-        if not segments:
-            raise HTTPException(status_code=500, detail="TTS produced no output file")
-
-        if len(segments) == 1:
-            os.rename(os.path.join(tmp_dir, segments[0]), wav_path)
-        else:
+        if mode == "clone":
             audio_parts = []
-            for seg in segments:
-                part, sr = sf.read(os.path.join(tmp_dir, seg))
-                audio_parts.append(part)
-            sf.write(wav_path, np.concatenate(audio_parts), sr)
+            sr = SAMPLE_RATE
+
+            for idx, (clean_part, next_punc) in enumerate(sub_segments):
+                part_files = sorted(
+                    [
+                        f
+                        for f in os.listdir(tmp_dir)
+                        if f.startswith(f"sub_{idx}_") and f.endswith(".wav")
+                    ]
+                )
+                if not part_files:
+                    continue
+
+                sub_audio_parts = []
+                for pf in part_files:
+                    part_audio, sr = sf.read(os.path.join(tmp_dir, pf))
+                    sub_audio_parts.append(part_audio)
+
+                if sub_audio_parts:
+                    audio_parts.append(np.concatenate(sub_audio_parts))
+
+                    if next_punc in (",", "，"):
+                        silence = np.zeros(int(0.25 * sr))
+                        audio_parts.append(silence)
+                    elif next_punc in (";", "；"):
+                        silence = np.zeros(int(0.35 * sr))
+                        audio_parts.append(silence)
+                    elif next_punc in (".", "。", "!", "！", "?", "？", "\n"):
+                        silence = np.zeros(int(0.6 * sr))
+                        audio_parts.append(silence)
+
+            if audio_parts:
+                sf.write(wav_path, np.concatenate(audio_parts), sr)
+            else:
+                raise HTTPException(status_code=500, detail="TTS produced no output file")
+        else:
+            # Find and merge/rename generated files for non-cloning modes
+            def _get_non_clone_seq(f: str) -> int:
+                m = re.search(r"(\d+)", f)
+                return int(m.group(1)) if m else 0
+
+            segments = sorted(
+                (f for f in os.listdir(tmp_dir) if re.match(r"audio_\d+\.wav$", f)),
+                key=_get_non_clone_seq,
+            )
+            if not segments:
+                raise HTTPException(status_code=500, detail="TTS produced no output file")
+
+            if len(segments) == 1:
+                os.rename(os.path.join(tmp_dir, segments[0]), wav_path)
+            else:
+                audio_parts = []
+                for seg in segments:
+                    part, sr = sf.read(os.path.join(tmp_dir, seg))
+                    audio_parts.append(part)
+                sf.write(wav_path, np.concatenate(audio_parts), sr)
 
         elapsed = time.time() - t0
         logger.info(
@@ -535,6 +625,6 @@ class QwenEngine(BaseEngine):
             voice_label,
             elapsed,
             len(text),
-            len(segments),
+            len(sub_segments) if mode == "clone" else len(segments),
         )
         return wav_path
