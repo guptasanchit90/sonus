@@ -18,12 +18,13 @@ logger = logging.getLogger("qwen")
 
 
 def _sanitize_text(text: str) -> str:
-    text = re.sub(
-        r", (it|this|that|there|we|they|he|she|I|you)\b",
-        r" \1",
-        text,
-    )
-    return text
+    if not text:
+        return text
+    # Clean up standard and full-width Chinese commas to mitigate empty space loops
+    text = text.replace(",", " ").replace("，", " ")
+    # Replace multiple spaces with a single space
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
 _MLX_AVAILABLE = False
@@ -178,7 +179,9 @@ def _load_embedding_from_disk(voice_file: str) -> mx.array | None:
     emb_path = _embedding_path(voice_file)
     if os.path.exists(emb_path):
         try:
-            return mx.load(emb_path)
+            res = mx.load(emb_path)
+            if isinstance(res, mx.array):
+                return res
         except Exception:
             os.remove(emb_path)
     return None
@@ -392,14 +395,19 @@ class QwenEngine(BaseEngine):
 
             t0 = time.time()
             try:
-                model = _model_cache.get_or_load(model_name, lambda: load_model(Path(resolved_path)))
+                model = _model_cache.get_or_load(
+                    model_name, lambda: load_model(Path(resolved_path))
+                )
             except HTTPException:
                 raise
             except Exception as e:
                 logger.error("model_load_failed req_id=%s model=%s: %s", req_id, model_name, e)
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Model load failed: {e}. Ensure the model is downloaded and MLX is working.",
+                    detail=(
+                        f"Model load failed: {e}. "
+                        "Ensure the model is downloaded and MLX is working."
+                    ),
                 )
 
             try:
@@ -432,13 +440,17 @@ class QwenEngine(BaseEngine):
 
                     ref_wav = os.path.join(tmp_dir, "ref_converted.wav")
                     if not convert_to_wav_24k(voice_path, ref_wav):
-                        raise HTTPException(status_code=500, detail="Failed to convert reference audio")
+                        raise HTTPException(
+                            status_code=500, detail="Failed to convert reference audio"
+                        )
 
                     txt_path = os.path.splitext(voice_path)[0] + ".txt"
                     ref_text = None
                     if os.path.exists(txt_path):
                         with open(txt_path, "r", encoding="utf-8") as fh:
                             ref_text = fh.read().strip() or None
+                    if ref_text:
+                        ref_text = _sanitize_text(ref_text)
                     if not ref_text:
                         name = request["sample_voice_file"]
                         raise HTTPException(
@@ -469,16 +481,26 @@ class QwenEngine(BaseEngine):
             except Exception as e:
                 logger.error(
                     "generation_failed req_id=%s segment=%s model=%s mode=%s voice=%s: %s",
-                    req_id, segment, model_name, mode, voice_label, e,
+                    req_id,
+                    segment,
+                    model_name,
+                    mode,
+                    voice_label,
+                    e,
                 )
                 raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
             _model_cache.touch()
 
         wav_path = os.path.join(tmp_dir, "audio.wav")
+
+        def _get_seq(f: str) -> int:
+            m = re.search(r"(\d+)", f)
+            return int(m.group(1)) if m else 0
+
         segments = sorted(
             (f for f in os.listdir(tmp_dir) if re.match(r"audio_\d+\.wav$", f)),
-            key=lambda f: int(re.search(r"(\d+)", f).group(1)),
+            key=_get_seq,
         )
         if not segments:
             raise HTTPException(status_code=500, detail="TTS produced no output file")
@@ -495,6 +517,12 @@ class QwenEngine(BaseEngine):
         elapsed = time.time() - t0
         logger.info(
             "req_id=%s segment=%s model=%s voice=%s elapsed=%.2fs text_len=%d chunks=%d",
-            req_id, segment, model_name, voice_label, elapsed, len(text), len(segments),
+            req_id,
+            segment,
+            model_name,
+            voice_label,
+            elapsed,
+            len(text),
+            len(segments),
         )
         return wav_path
