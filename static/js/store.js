@@ -54,6 +54,7 @@ const store = reactive({
   selectedBatchModels: [],
   multivoiceModel: '',
   multivoiceSelectedVoices: [],
+  selectedBatchCloneVoices: [],
   batchGapMs: 2000,
   batchProgress: null,
   batchAbort: false,

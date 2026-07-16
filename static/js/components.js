@@ -681,6 +681,11 @@ comps['generate-form'] = {
     allCloneableVoices() {
       return this.$store.voiceDetails.map(v => v.name);
     },
+    cloneBatchVoicesLabel() {
+      const n = this.$store.selectedBatchCloneVoices.length;
+      const total = this.allCloneableVoices.length;
+      return n + ' of ' + total + ' selected';
+    },
     cloneBatchLabel() {
       const n = this.$store.selectedBatchModels.length;
       const total = this.cloneModels.length;
@@ -696,6 +701,9 @@ comps['generate-form'] = {
       if (this.$store.batchTab === 'multivoice') {
         return !this.$store.multivoiceModel || !this.$store.multivoiceSelectedVoices.length;
       }
+      if (this.$store.batchTab === 'clone') {
+        return !this.$store.selectedBatchModels.length || !this.$store.selectedBatchCloneVoices.length;
+      }
       return !this.$store.selectedBatchModels.length;
     },
     batchSubmitLabel() {
@@ -704,6 +712,12 @@ comps['generate-form'] = {
       if (this.$store.batchTab === 'multivoice') {
         const n = this.$store.multivoiceSelectedVoices.length;
         return 'Generate with ' + n + ' voice' + (n === 1 ? '' : 's');
+      }
+      if (this.$store.batchTab === 'clone') {
+        const m = this.$store.selectedBatchModels.length;
+        const v = this.$store.selectedBatchCloneVoices.length;
+        const n = m * v;
+        return 'Batch Generate (' + n + ' output' + (n === 1 ? '' : 's') + ')';
       }
       return 'Batch Generate';
     },
@@ -913,6 +927,7 @@ comps['generate-form'] = {
       this.$store.selectedBatchModels = [];
       this.$store.multivoiceModel = '';
       this.$store.multivoiceSelectedVoices = [];
+      this.$store.selectedBatchCloneVoices = [];
     },
     capsLabel(m) {
       if (!m.capabilities || !m.capabilities.length) return '';
@@ -1176,6 +1191,32 @@ comps['generate-form'] = {
           modelId: this.$store.multivoiceModel,
           voice: v,
         }));
+      } else if (tab === 'clone') {
+        const models = this.$store.selectedBatchModels;
+        if (!models.length) {
+          this.genStatus = 'Please select at least one model.';
+          this.genStatusClass = 'error';
+          return;
+        }
+        const cloneVoices = this.$store.selectedBatchCloneVoices;
+        if (!cloneVoices.length) {
+          this.genStatus = 'Please select at least one voice file.';
+          this.genStatusClass = 'error';
+          return;
+        }
+        items = [];
+        for (const modelId of models) {
+          const m = this.$store.models.find(x => x.id === modelId);
+          const modelName = m ? m.name : modelId;
+          for (const voice of cloneVoices) {
+            items.push({
+              id: `${modelId}-${voice}`,
+              label: `${modelName} (${voice})`,
+              modelId: modelId,
+              voice: voice,
+            });
+          }
+        }
       } else {
         const models = this.$store.selectedBatchModels;
         if (!models.length) {
@@ -1183,9 +1224,9 @@ comps['generate-form'] = {
           this.genStatusClass = 'error';
           return;
         }
-        const voiceField = tab === 'clone' ? this.$store.form.sample_voice_file.trim() : this.$store.form.voice_description.trim();
+        const voiceField = this.$store.form.voice_description.trim();
         if (!voiceField) {
-          this.genStatus = tab === 'clone' ? 'Please select a voice file.' : 'Please enter a voice description.';
+          this.genStatus = 'Please enter a voice description.';
           this.genStatusClass = 'error';
           return;
         }
@@ -1342,6 +1383,19 @@ comps['generate-form'] = {
 
     selectAllVoices() {
       this.$store.multivoiceSelectedVoices.splice(0, this.$store.multivoiceSelectedVoices.length, ...this.multivoiceVoices);
+    },
+
+    toggleBatchCloneVoice(name) {
+      const idx = this.$store.selectedBatchCloneVoices.indexOf(name);
+      if (idx >= 0) {
+        this.$store.selectedBatchCloneVoices.splice(idx, 1);
+      } else {
+        this.$store.selectedBatchCloneVoices.push(name);
+      }
+    },
+
+    selectAllCloneVoices() {
+      this.$store.selectedBatchCloneVoices.splice(0, this.$store.selectedBatchCloneVoices.length, ...this.allCloneableVoices);
     },
 
     // ── Music / SFX tab ───────────────────────────────────────────────────

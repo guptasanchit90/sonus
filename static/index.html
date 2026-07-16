@@ -456,12 +456,23 @@
                 <button type="button" @click="clearSelected">Clear</button>
               </div>
             </div>
-            <div class="form-group voice-field">
-              <label for="b_clone_voice">Sample Voice File</label>
-              <select id="b_clone_voice" v-model="$store.form.sample_voice_file">
-                <option value="">— Select a voice file —</option>
-                <option v-for="v in allCloneableVoices" :value="v">{{ v }}</option>
-              </select>
+            <div class="form-group" v-if="allCloneableVoices.length">
+              <label>Voices ({{ cloneBatchVoicesLabel }} selected)</label>
+              <div class="model-grid">
+                <div v-for="(v, i) in allCloneableVoices" :key="v" class="model-card" :style="{ '--i': i }"
+                  :class="{ selected: $store.selectedBatchCloneVoices.includes(v) }"
+                  @click="toggleBatchCloneVoice(v)">
+                  <input type="checkbox" :checked="$store.selectedBatchCloneVoices.includes(v)" @click.stop>
+                  <span class="model-name">{{ v }}</span>
+                </div>
+              </div>
+              <div class="model-select-actions">
+                <button type="button" @click="selectAllCloneVoices">Select all</button>
+                <button type="button" @click="$store.selectedBatchCloneVoices = []">Clear</button>
+              </div>
+            </div>
+            <div class="voice-hint" v-else>
+              No custom clone voices available. Please add some voices first.
             </div>
           </template>
 
