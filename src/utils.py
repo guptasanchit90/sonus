@@ -31,9 +31,21 @@ SAMPLE_RATE = 24000
 
 
 def resolve_voice(filename: str) -> str | None:
+    clean_name = filename
+    if clean_name.lower().endswith(".wav"):
+        clean_name = clean_name[:-4]
+
+    # Check folder-based voice
+    folder_path = os.path.join(VOICES_DIR, clean_name)
+    if os.path.isdir(folder_path):
+        wav_path = os.path.join(folder_path, f"{clean_name}.wav")
+        if os.path.exists(wav_path):
+            return wav_path
+
+    # Legacy fallback
     for candidate in [filename, f"{filename}.wav"]:
         full = os.path.join(VOICES_DIR, candidate)
-        if os.path.exists(full):
+        if os.path.exists(full) and not os.path.isdir(full):
             return full
     return None
 
@@ -103,6 +115,55 @@ def clean_memory() -> None:
 def scan_wav_voices(directory: str = VOICES_DIR) -> list[str]:
     if not os.path.exists(directory):
         return []
-    return sorted(
-        f for f in os.listdir(directory) if f.lower().endswith(".wav") and not f.startswith(".")
-    )
+    names: list[str] = []
+    for entry in os.listdir(directory):
+        if entry.startswith("."):
+            continue
+        entry_path = os.path.join(directory, entry)
+        if os.path.isdir(entry_path):
+            # Folder-based voice: folder named <stem>, wav inside named <stem>.wav
+            wav = os.path.join(entry_path, f"{entry}.wav")
+            if os.path.exists(wav):
+                names.append(f"{entry}.wav")
+        elif entry.lower().endswith(".wav"):
+            names.append(entry)
+    return sorted(names)
+
+
+# ---------------------------------------------------------------------------
+# Voice embedding helpers — shared by any engine that caches speaker embeddings
+# ---------------------------------------------------------------------------
+
+
+def voice_embedding_path(voice_file: str) -> str:
+    """Return the .npy sidecar path for a given voice WAV path."""
+    return os.path.splitext(voice_file)[0] + ".npy"
+
+
+def load_voice_embedding(voice_file: str):
+    """Load a cached MLX speaker embedding from disk, or return None."""
+    try:
+        import mlx.core as mx
+    except ImportError:
+        return None
+
+    emb_path = voice_embedding_path(voice_file)
+    if os.path.exists(emb_path):
+        try:
+            res = mx.load(emb_path)
+            if isinstance(res, mx.array):
+                return res
+        except Exception:
+            os.remove(emb_path)
+    return None
+
+
+def save_voice_embedding(voice_file: str, embedding) -> None:
+    """Persist an MLX speaker embedding to a .npy sidecar next to the WAV."""
+    try:
+        import mlx.core as mx
+
+        emb_path = voice_embedding_path(voice_file)
+        mx.save(emb_path, embedding)
+    except Exception:
+        pass

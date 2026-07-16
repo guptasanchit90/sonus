@@ -61,8 +61,11 @@ from src.utils import (
     SAMPLE_RATE,
     VOICES_DIR,
     convert_to_wav_24k,
+    load_voice_embedding,
     mlx_lock,
     resolve_voice,
+    save_voice_embedding,
+    scan_wav_voices,
 )
 from src.utils import (
     model_path as _model_path,
@@ -184,30 +187,6 @@ def _load_audio_for_embedding(audio_path: str):
     return audio
 
 
-def _embedding_path(voice_file: str) -> str:
-    return voice_file + ".npy"
-
-
-def _load_embedding_from_disk(voice_file: str) -> mx.array | None:
-    emb_path = _embedding_path(voice_file)
-    if os.path.exists(emb_path):
-        try:
-            res = mx.load(emb_path)
-            if isinstance(res, mx.array):
-                return res
-        except Exception:
-            os.remove(emb_path)
-    return None
-
-
-def _save_embedding_to_disk(voice_file: str, embedding: mx.array) -> None:
-    emb_path = _embedding_path(voice_file)
-    try:
-        mx.save(emb_path, embedding)
-    except Exception:
-        pass
-
-
 def _get_or_compute_speaker_embedding(model, voice_file: str) -> mx.array:
     cache_key = os.path.abspath(voice_file)
 
@@ -215,11 +194,11 @@ def _get_or_compute_speaker_embedding(model, voice_file: str) -> mx.array:
         if cache_key in _speaker_embedding_cache:
             return _speaker_embedding_cache[cache_key]
 
-    embedding = _load_embedding_from_disk(voice_file)
+    embedding = load_voice_embedding(voice_file)
     if embedding is None:
         audio = _load_audio_for_embedding(voice_file)
         embedding = model.extract_speaker_embedding(audio, SAMPLE_RATE)
-        _save_embedding_to_disk(voice_file, embedding)
+        save_voice_embedding(voice_file, embedding)
 
     with _speaker_embedding_lock:
         _speaker_embedding_cache[cache_key] = embedding
@@ -261,15 +240,7 @@ class QwenEngine(BaseEngine):
 
     def list_models(self) -> list[dict]:
         meta = _MODEL_META
-        cloneable = (
-            sorted(
-                f
-                for f in os.listdir(VOICES_DIR)
-                if f.lower().endswith(".wav") and not f.startswith(".")
-            )
-            if os.path.exists(VOICES_DIR)
-            else []
-        )
+        cloneable = scan_wav_voices() if os.path.exists(VOICES_DIR) else []
 
         def _voices(mode: str) -> dict:
             if mode == "custom":
@@ -304,15 +275,7 @@ class QwenEngine(BaseEngine):
         ]
 
     def list_voices(self) -> dict:
-        cloneable = (
-            sorted(
-                f
-                for f in os.listdir(VOICES_DIR)
-                if f.lower().endswith(".wav") and not f.startswith(".")
-            )
-            if os.path.exists(VOICES_DIR)
-            else []
-        )
+        cloneable = scan_wav_voices() if os.path.exists(VOICES_DIR) else []
 
         return {
             "built_in": sorted(_SPEAKERS),

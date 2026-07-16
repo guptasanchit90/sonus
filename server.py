@@ -260,6 +260,9 @@ async def _startup():
 
     bind_cache_loops(asyncio.get_running_loop())
 
+    # Clean up any orphaned files left in the staging directory from previous sessions
+    _cleanup_staging_dir()
+
 
 # ---------------------------------------------------------------------------
 # Model manifest — built dynamically from each engine's list_models()
@@ -723,12 +726,15 @@ async def upload_voice(
     )
     safe_name = stem + ".wav"
 
-    target = os.path.join(VOICES_DIR, safe_name)
-    if os.path.exists(target):
+    voice_dir = os.path.join(VOICES_DIR, stem)
+    target = os.path.join(voice_dir, safe_name)
+    if os.path.exists(voice_dir) or os.path.exists(os.path.join(VOICES_DIR, safe_name)):
         raise HTTPException(
             status_code=409,
             detail=f"Voice '{safe_name}' already exists. Use DELETE /voice/{safe_name} first to replace it.",
         )
+
+    os.makedirs(voice_dir, exist_ok=True)
 
     is_wav = len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WAVE"
 
@@ -737,6 +743,7 @@ async def upload_voice(
             with open(target, "wb") as f:
                 f.write(content)
         except OSError as e:
+            shutil.rmtree(voice_dir, ignore_errors=True)
             raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
     else:
         fd, tmp_path = tempfile.mkstemp(suffix=os.path.splitext(file.filename or ".dat")[1])
@@ -745,8 +752,7 @@ async def upload_voice(
             with open(tmp_path, "wb") as f:
                 f.write(content)
             if not convert_to_wav_24k(tmp_path, target):
-                if os.path.exists(target):
-                    os.unlink(target)
+                shutil.rmtree(voice_dir, ignore_errors=True)
                 raise HTTPException(
                     status_code=422,
                     detail="Could not convert file to WAV — is it a valid audio file? ffmpeg must be installed.",
@@ -778,6 +784,29 @@ async def upload_voice(
 
 
 STAGE_DIR = os.path.join(VOICES_DIR, ".staging")
+
+
+def _cleanup_staging_dir() -> None:
+    """Remove all leftover files from the staging directory on startup."""
+    if not os.path.exists(STAGE_DIR):
+        return
+    for fname in os.listdir(STAGE_DIR):
+        fpath = os.path.join(STAGE_DIR, fname)
+        try:
+            if os.path.isfile(fpath):
+                os.remove(fpath)
+            elif os.path.isdir(fpath):
+                shutil.rmtree(fpath, ignore_errors=True)
+        except OSError as e:
+            logger.warning("staging_cleanup_failed file=%s: %s", fname, e)
+    # Also purge .staging/* keys from metadata
+    meta = _load_voice_metadata()
+    stale = [k for k in meta if k.startswith(".staging/")]
+    if stale:
+        for k in stale:
+            del meta[k]
+        _save_voice_metadata(meta)
+    logger.info("staging_cleanup done")
 
 
 @app.post(
@@ -984,14 +1013,23 @@ async def save_stage_voice(name: str):
     if not real.startswith(os.path.realpath(STAGE_DIR)):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    target = os.path.join(VOICES_DIR, safe)
-    if os.path.exists(target):
+    stem = safe[:-4]
+    voice_dir = os.path.join(VOICES_DIR, stem)
+    target = os.path.join(voice_dir, safe)
+
+    if os.path.exists(voice_dir) or os.path.exists(os.path.join(VOICES_DIR, safe)):
         raise HTTPException(
             status_code=409,
             detail=f"Voice '{safe}' already exists. Use DELETE /voice/{safe} first to replace it.",
         )
 
+    os.makedirs(voice_dir, exist_ok=True)
     shutil.move(stage_path, target)
+
+    # Move any staging .txt sidecar into the folder
+    stage_txt = os.path.join(STAGE_DIR, stem + ".txt")
+    if os.path.exists(stage_txt):
+        shutil.move(stage_txt, os.path.join(voice_dir, stem + ".txt"))
 
     meta = _load_voice_metadata()
     if safe in meta:
@@ -1029,7 +1067,12 @@ def get_voice(name: str):
 
 
 @app.put("/voice/{name:path}", summary="Rename a voice file", tags=["voice-management"])
-def rename_voice(name: str, new_name: str, description: str | None = None):
+def rename_voice(
+    name: str,
+    new_name: str,
+    description: str | None = None,
+    tags: str | None = None,
+):
     path = resolve_voice(name)
     if not path:
         raise HTTPException(status_code=404, detail=f"Voice '{name}' not found")
@@ -1040,24 +1083,61 @@ def rename_voice(name: str, new_name: str, description: str | None = None):
     safe_new = "".join(c for c in new_name if c.isalnum() or c in "-_.").rstrip(".") or "voice"
     if not safe_new.endswith(".wav"):
         safe_new += ".wav"
-
-    new_path = os.path.join(VOICES_DIR, safe_new)
-    if os.path.exists(new_path):
-        raise HTTPException(status_code=409, detail=f"Voice '{safe_new}' already exists")
+    safe_new_stem = safe_new[:-4]
 
     old_name = os.path.basename(path)
-    meta = _load_voice_metadata()
-    if old_name in meta:
-        meta[safe_new] = meta.pop(old_name)
-    if description is not None:
-        meta.setdefault(safe_new, {})["description"] = description
+    old_stem = old_name[:-4]
+    if safe_new != old_name:
+        new_folder = os.path.join(VOICES_DIR, safe_new_stem)
+        new_flat = os.path.join(VOICES_DIR, safe_new)
+        if os.path.exists(new_folder) or os.path.exists(new_flat):
+            raise HTTPException(status_code=409, detail=f"Voice '{safe_new}' already exists")
+
+        meta = _load_voice_metadata()
+        if old_name in meta:
+            meta[safe_new] = meta.pop(old_name)
+        if description is not None:
+            meta.setdefault(safe_new, {})["description"] = description
+        if tags is not None:
+            parsed_tags = [t.strip() for t in tags.split(",") if t.strip()]
+            meta.setdefault(safe_new, {})["tags"] = parsed_tags
         _save_voice_metadata(meta)
 
-    os.rename(path, new_path)
-    old_emb = path + ".npy"
-    if os.path.exists(old_emb):
-        os.rename(old_emb, new_path + ".npy")
-    return {"name": safe_new, "url": f"/voice/{safe_new}"}
+        parent_dir = os.path.dirname(path)
+        if os.path.realpath(parent_dir) != os.path.realpath(VOICES_DIR):
+            # Folder-based: rename folder, then rename wav/sidecar files inside
+            new_path = os.path.join(new_folder, safe_new)
+            os.rename(parent_dir, new_folder)
+            old_wav_in_new = os.path.join(new_folder, old_name)
+            if os.path.exists(old_wav_in_new):
+                os.rename(old_wav_in_new, new_path)
+            for ext in (".npy", ".txt"):
+                old_sidecar = os.path.join(new_folder, old_stem + ext)
+                if os.path.exists(old_sidecar):
+                    os.rename(old_sidecar, os.path.join(new_folder, safe_new_stem + ext))
+        else:
+            # Legacy flat file: rename wav + sidecars
+            new_path = new_flat
+            os.rename(path, new_path)
+            for ext in (".npy", ".txt"):
+                old_sidecar = os.path.join(VOICES_DIR, old_stem + ext)
+                if os.path.exists(old_sidecar):
+                    os.rename(old_sidecar, os.path.join(VOICES_DIR, safe_new_stem + ext))
+
+        return {"name": safe_new, "url": f"/voice/{safe_new}"}
+    else:
+        meta = _load_voice_metadata()
+        updated = False
+        if description is not None:
+            meta.setdefault(old_name, {})["description"] = description
+            updated = True
+        if tags is not None:
+            parsed_tags = [t.strip() for t in tags.split(",") if t.strip()]
+            meta.setdefault(old_name, {})["tags"] = parsed_tags
+            updated = True
+        if updated:
+            _save_voice_metadata(meta)
+        return {"name": old_name, "url": f"/voice/{old_name}"}
 
 
 @app.delete("/voice/{name:path}", summary="Delete a voice file", tags=["voice-management"])
@@ -1068,10 +1148,19 @@ def delete_voice(name: str):
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(VOICES_DIR)):
         raise HTTPException(status_code=403, detail="Access denied")
-    os.remove(path)
-    embedding = path + ".npy"
-    if os.path.exists(embedding):
-        os.remove(embedding)
+
+    parent_dir = os.path.dirname(path)
+    # Folder-based voice: delete the whole folder
+    if os.path.realpath(parent_dir) != os.path.realpath(VOICES_DIR):
+        shutil.rmtree(parent_dir, ignore_errors=True)
+    else:
+        # Legacy flat file: remove wav + known sidecars
+        os.remove(path)
+        for ext in (".npy", ".txt"):
+            sidecar = os.path.splitext(path)[0] + ext
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+
     vfile = os.path.basename(path)
     meta = _load_voice_metadata()
     if vfile in meta:
@@ -1612,10 +1701,12 @@ def list_v1_voices(model_id: str | None = None):
                     vmeta = voice_meta.get(item, {})
                     if vmeta.get("description"):
                         entry["description"] = vmeta["description"]
+                    if vmeta.get("tags"):
+                        entry["tags"] = vmeta["tags"]
 
                 if category == "cloneable":
-                    path = os.path.join(VOICES_DIR, item)
-                    if os.path.exists(path):
+                    path = resolve_voice(item)
+                    if path and os.path.exists(path):
                         entry["size"] = os.path.getsize(path)
                         entry["duration"] = round(get_audio_duration(path), 1)
                         entry["created_at"] = os.path.getmtime(path)

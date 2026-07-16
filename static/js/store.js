@@ -167,7 +167,7 @@ function applyVoiceData($store, list) {
     if (!map[v.engine][cat]) map[v.engine][cat] = [];
     map[v.engine][cat].push(v.id);
     if (v.category === 'cloneable') {
-      details.push({ name: v.id, size: v.size, duration: v.duration, created_at: v.created_at, url: v.url });
+      details.push({ name: v.id, size: v.size, duration: v.duration, created_at: v.created_at, url: v.url, description: v.description, tags: v.tags });
     }
   });
   details.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));

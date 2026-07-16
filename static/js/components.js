@@ -133,10 +133,28 @@ comps['audio-player'] = {
 comps['voice-panel'] = {
   template: '#voice-panel-template',
   data() {
-    return { renaming: null };
+    return { renaming: null, activeTab: 'standard', searchQuery: '' };
   },
   computed: {
-    items() { return this.$store.voiceDetails; },
+    items() {
+      const all = this.$store.voiceDetails || [];
+      let filtered = all;
+      if (this.activeTab === 'system') {
+        filtered = all.filter(v => v.name.startsWith('__'));
+      } else {
+        filtered = all.filter(v => !v.name.startsWith('__'));
+      }
+      const query = (this.searchQuery || '').trim().toLowerCase();
+      if (query) {
+        filtered = filtered.filter(v => {
+          const nameMatch = v.name.toLowerCase().includes(query);
+          const descMatch = (v.description || '').toLowerCase().includes(query);
+          const tagsMatch = (v.tags || []).some(t => t.toLowerCase().includes(query));
+          return nameMatch || descMatch || tagsMatch;
+        });
+      }
+      return filtered;
+    },
     totalSizeStr() {
       const bytes = (this.items || []).reduce((sum, v) => sum + (v.size || 0), 0);
       if (bytes === 0) return '0 B';
@@ -191,6 +209,28 @@ comps['voice-panel'] = {
           });
         });
     },
+    async deleteAllSystemVoices() {
+      const systemVoices = (this.$store.voiceDetails || []).filter(v => v.name.startsWith('__'));
+      if (!systemVoices.length) return;
+      if (!confirm(`Are you sure you want to delete all ${systemVoices.length} hidden system voices? This action cannot be undone.`)) return;
+      
+      for (const v of systemVoices) {
+        try {
+          const r = await fetch('/voice/' + encodeURIComponent(v.name), { method: 'DELETE' });
+          if (r.ok) {
+            this.$store.voiceDetails = this.$store.voiceDetails.filter(vd => vd.name !== v.name);
+            this.$store.models.forEach(m => {
+              if (m.voices && m.voices.cloneable) {
+                const idx = m.voices.cloneable.indexOf(v.name);
+                if (idx >= 0) m.voices.cloneable.splice(idx, 1);
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Failed to delete voice:', v.name, err);
+        }
+      }
+    },
   },
 };
 
@@ -227,22 +267,23 @@ comps['sfx-panel'] = {
     triggerUpload() {
       this.$refs.sfxUploadInput.click();
     },
-    uploadSFXFile(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    async uploadSFXFile(event) {
+      const files = event.target.files;
+      if (!files || !files.length) return;
       this.uploading = true;
-      const fd = new FormData();
-      fd.append('file', file);
-      fetch('/sfx', { method: 'POST', body: fd })
-        .then(r => r.json())
-        .then(() => {
-          this.loadSFX();
-        })
-        .catch(() => {})
-        .finally(() => {
-          this.uploading = false;
-          event.target.value = '';
-        });
+      try {
+        for (const file of files) {
+          const fd = new FormData();
+          fd.append('file', file);
+          await fetch('/sfx', { method: 'POST', body: fd });
+        }
+        this.loadSFX();
+      } catch (err) {
+        console.error('Failed to upload SFX:', err);
+      } finally {
+        this.uploading = false;
+        event.target.value = '';
+      }
     },
     startRename(name) {
       this.renaming = { original: name, current: name };
@@ -2160,7 +2201,7 @@ comps['add-voice-modal'] = {
   data() {
     return {
       activeTab: 'upload',
-      uploadFile: null,
+      uploadFiles: [],
       uploadName: '',
       uploadDescription: '',
       uploadStatus: '',
@@ -2180,14 +2221,14 @@ comps['add-voice-modal'] = {
       _analyser: null,
       _animFrame: null,
       _stream: null,
-      stagedFile: null,
-      stageTranscription: '',
-      stageTranscribing: false,
-      stageSaving: false,
+      stagedFiles: [],
+      addingMore: false,
+      bulkSaving: false,
+      bulkTranscribing: false,
+      currentStagedPlayIndex: null,
       playing: false,
       currentTime: 0,
       duration: 0,
-      seeker: false,
       _audio: null,
     };
   },
@@ -2195,38 +2236,78 @@ comps['add-voice-modal'] = {
     hasAvailableStt() {
       return (this.$store.e2eModels || []).some(m => m.available);
     },
+    hasUnboundTranscription() {
+      return this.stagedFiles.some(f => !f.transcription);
+    },
   },
   watch: {
-    stagedFile(v) { if (!v && this._audio) this.stopPlayer(); },
+    stagedFiles: {
+      handler(newVal) {
+        if (!newVal || newVal.length === 0) {
+          this.stopPlayer();
+        }
+      },
+      deep: true
+    }
   },
   methods: {
     switchTab(tab) { this.activeTab = tab; },
+    handleFileSelect(event) {
+      const files = Array.from(event.target.files);
+      this.uploadFiles = files;
+      if (files.length === 1) {
+        this.uploadName = files[0].name.replace(/\.[^/.]+$/, "");
+      } else {
+        this.uploadName = '';
+      }
+    },
     async uploadSubmit() {
-      const file = this.uploadFile;
-      if (!file) {
-        this.uploadStatus = 'Please select a file.';
+      if (!this.uploadFiles.length) {
+        this.uploadStatus = 'Please select one or more files.';
         this.uploadStatusClass = 'error';
         return;
       }
       const btn = this.$el.querySelector('#upload-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
+      this.uploadStatus = 'Uploading...';
+      this.uploadStatusClass = '';
       try {
-        const fd = new FormData();
-        fd.append('file', file);
-        if (this.uploadName.trim()) fd.append('name', this.uploadName.trim());
-        if (this.uploadDescription.trim()) fd.append('description', this.uploadDescription.trim());
-        const resp = await fetch('/voice/stage', { method: 'POST', body: fd });
-        const data = await resp.json();
-        if (!resp.ok) {
-          this.uploadStatus = data.detail || 'Error ' + resp.status;
-          this.uploadStatusClass = 'error';
-          return;
+        let uploadedCount = 0;
+        for (let i = 0; i < this.uploadFiles.length; i++) {
+          const file = this.uploadFiles[i];
+          this.uploadStatus = `Uploading ${i + 1}/${this.uploadFiles.length}: ${file.name}...`;
+          const fd = new FormData();
+          fd.append('file', file);
+          if (this.uploadFiles.length === 1) {
+            if (this.uploadName.trim()) fd.append('name', this.uploadName.trim());
+            if (this.uploadDescription.trim()) fd.append('description', this.uploadDescription.trim());
+          }
+          const resp = await fetch('/voice/stage', { method: 'POST', body: fd });
+          const data = await resp.json();
+          if (resp.ok) {
+            data.editName = data.name.replace(/\.wav$/i, '');
+            data.editDescription = (this.uploadFiles.length === 1 ? this.uploadDescription.trim() : '');
+            data.editTags = '';
+            data.transcription = '';
+            data.transcribing = false;
+            data.saving = false;
+            this.stagedFiles.push(data);
+            uploadedCount++;
+          } else {
+            console.error('Failed to stage:', file.name, data.detail);
+          }
         }
-        this.stagedFile = data;
-        this.uploadStatus = '';
-        this.uploadFile = null;
-        this.uploadName = '';
-        this.uploadDescription = '';
+        if (uploadedCount === 0) {
+          this.uploadStatus = 'Failed to upload selected file(s).';
+          this.uploadStatusClass = 'error';
+        } else {
+          this.uploadStatus = '';
+          this.uploadFiles = [];
+          this.uploadName = '';
+          this.uploadDescription = '';
+          if (this.$refs.fileInput) this.$refs.fileInput.value = '';
+          this.addingMore = false;
+        }
       } catch (err) {
         this.uploadStatus = 'Network error: ' + err.message;
         this.uploadStatusClass = 'error';
@@ -2302,66 +2383,115 @@ comps['add-voice-modal'] = {
           this.recordStatusClass = 'error';
           return;
         }
-        this.stagedFile = data;
+        data.editName = data.name.replace(/\.wav$/i, '');
+        data.editDescription = '';
+        data.editTags = '';
+        data.transcription = '';
+        data.transcribing = false;
+        data.saving = false;
+        this.stagedFiles.push(data);
         this.recordStatus = '';
         this.recordName = '';
+        this.addingMore = false;
       } catch (err) {
         this.recordStatus = 'Network error: ' + err.message;
         this.recordStatusClass = 'error';
       }
     },
-    async transcribeStage() {
+    async transcribeStagedFile(index) {
+      const file = this.stagedFiles[index];
+      if (!file || file.transcribing) return;
       const e2eModels = this.$store.e2eModels || [];
       const sttModel = e2eModels.find(m => m.available && m.mlx_required) || e2eModels.find(m => m.available && m.id);
       if (!sttModel) {
-        this.stageTranscription = 'No STT model available. Install a Whisper model first.';
+        file.transcription = 'No STT model available. Install a Whisper model first.';
         return;
       }
-      this.stageTranscribing = true;
-      this.stageTranscription = '';
+      file.transcribing = true;
+      file.transcription = '';
       try {
-        const resp = await fetch(this.stagedFile.url);
+        const resp = await fetch(file.url);
         const blob = await resp.blob();
         const fd = new FormData();
-        fd.append('file', blob, this.stagedFile.name);
+        fd.append('file', blob, file.name);
         fd.append('model', sttModel.id);
         fd.append('response_format', 'json');
         const sttResp = await fetch('/v1/audio/transcriptions', { method: 'POST', body: fd });
         const d = await sttResp.json();
         if (!sttResp.ok) {
-          this.stageTranscription = d.detail || 'Transcription failed';
+          file.transcription = d.detail || 'Transcription failed';
         } else {
-          this.stageTranscription = d.text;
+          file.transcription = d.text;
         }
       } catch (err) {
-        this.stageTranscription = 'Error: ' + err.message;
+        file.transcription = 'Error: ' + err.message;
       } finally {
-        this.stageTranscribing = false;
+        file.transcribing = false;
       }
     },
-    async saveStage() {
-      this.stageSaving = true;
+    async saveStagedFile(index) {
+      const file = this.stagedFiles[index];
+      if (!file || file.saving) return;
+      file.saving = true;
       try {
-        const resp = await fetch('/voice/stage/' + encodeURIComponent(this.stagedFile.name) + '/save', { method: 'POST' });
-        const data = await resp.json();
-        if (!resp.ok) {
-          this.stageSaving = false;
+        const saveResp = await fetch('/voice/stage/' + encodeURIComponent(file.name) + '/save', { method: 'POST' });
+        const saveData = await saveResp.json();
+        if (!saveResp.ok) {
+          alert('Failed to save voice: ' + (saveData.detail || saveResp.statusText));
+          file.saving = false;
           return;
         }
-        this.$store.voiceDetails.unshift(data);
+
+        let finalData = saveData;
+        const targetCleanName = file.editName.trim();
+        const originalCleanName = file.name.replace(/\.wav$/i, '');
+        const targetDesc = file.editDescription ? file.editDescription.trim() : '';
+        const targetTags = file.editTags ? file.editTags.trim() : '';
+        
+        if (targetCleanName !== originalCleanName || targetDesc || targetTags) {
+          let putUrl = '/voice/' + encodeURIComponent(saveData.name) + 
+                       '?new_name=' + encodeURIComponent(targetCleanName);
+          if (targetDesc) putUrl += '&description=' + encodeURIComponent(targetDesc);
+          if (targetTags) putUrl += '&tags=' + encodeURIComponent(targetTags);
+          
+          const putResp = await fetch(putUrl, { method: 'PUT' });
+          const putData = await putResp.json();
+          if (putResp.ok) {
+            finalData = putData;
+            finalData.description = targetDesc;
+            finalData.tags = targetTags ? targetTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+          } else {
+            console.error('Failed to update name/description/tags:', putData.detail);
+          }
+        }
+
+        this.$store.voiceDetails.unshift(finalData);
         fetch('/v1/voices').then(r => r.json()).then(d => {
           if (d && d.data) applyVoiceData(this.$store, d.data);
         }).catch(() => {});
+        
         const sel = this.$store.form.model;
         if (sel) {
           const m = this.$store.models.find(mdl => mdl.id === sel);
-          if (m && m.voices && m.voices.cloneable && !m.voices.cloneable.includes(data.name)) {
-            m.voices.cloneable.push(data.name);
+          if (m && m.voices && m.voices.cloneable && !m.voices.cloneable.includes(finalData.name)) {
+            m.voices.cloneable.push(finalData.name);
           }
         }
-        this.close();
+
+        this.stagedFiles.splice(index, 1);
+        
+        if (this.currentStagedPlayIndex === index) {
+          this.stopPlayer();
+        } else if (this.currentStagedPlayIndex > index) {
+          this.currentStagedPlayIndex--;
+        }
+
+        if (this.stagedFiles.length === 0) {
+          this.close();
+        }
       } catch (err) {
-        this.stageSaving = false;
+        alert('Error saving voice: ' + err.message);
+        file.saving = false;
       }
     },
     async urlSubmit() {
@@ -2390,10 +2520,17 @@ comps['add-voice-modal'] = {
           this.urlStatusClass = 'error';
           return;
         }
-        this.stagedFile = data;
+        data.editName = data.name.replace(/\.wav$/i, '');
+        data.editDescription = '';
+        data.editTags = '';
+        data.transcription = '';
+        data.transcribing = false;
+        data.saving = false;
+        this.stagedFiles.push(data);
         this.urlAddress = '';
         this.urlName = '';
         this.urlStatus = '';
+        this.addingMore = false;
       } catch (err) {
         this.urlStatus = 'Network error: ' + err.message;
         this.urlStatusClass = 'error';
@@ -2401,16 +2538,65 @@ comps['add-voice-modal'] = {
         this.urlFetching = false;
       }
     },
-    async discardStage() {
-      if (this.stagedFile) {
-        try { await fetch('/voice/stage/' + encodeURIComponent(this.stagedFile.name), { method: 'DELETE' }); } catch {}
+    async discardStagedFile(index) {
+      const file = this.stagedFiles[index];
+      if (!file) return;
+      try {
+        await fetch('/voice/stage/' + encodeURIComponent(file.name), { method: 'DELETE' });
+      } catch (err) {
+        console.error('Failed to delete staged file:', err);
       }
-      this.stagedFile = null;
-      this.stageTranscription = '';
-      this.urlAddress = '';
-      this.urlName = '';
-      this.urlStatus = '';
-      this.activeTab = 'upload';
+      this.stagedFiles.splice(index, 1);
+      
+      if (this.currentStagedPlayIndex === index) {
+        this.stopPlayer();
+      } else if (this.currentStagedPlayIndex > index) {
+        this.currentStagedPlayIndex--;
+      }
+
+      if (this.stagedFiles.length === 0) {
+        this.addingMore = false;
+      }
+    },
+    async discardAllStage() {
+      if (!confirm('Discard all staged files?')) return;
+      const promises = this.stagedFiles.map(file => 
+        fetch('/voice/stage/' + encodeURIComponent(file.name), { method: 'DELETE' }).catch(() => {})
+      );
+      await Promise.all(promises);
+      this.stagedFiles = [];
+      this.addingMore = false;
+      this.stopPlayer();
+    },
+    async saveAllStage() {
+      this.bulkSaving = true;
+      try {
+        for (let i = this.stagedFiles.length - 1; i >= 0; i--) {
+          await this.saveStagedFile(i);
+        }
+      } catch (err) {
+        console.error('Error in saveAllStage:', err);
+      } finally {
+        this.bulkSaving = false;
+      }
+    },
+    async transcribeAllStage() {
+      this.bulkTranscribing = true;
+      try {
+        for (let i = 0; i < this.stagedFiles.length; i++) {
+          const file = this.stagedFiles[i];
+          if (!file.transcription) {
+            await this.transcribeStagedFile(i);
+          }
+        }
+      } catch (err) {
+        console.error('Error in transcribeAllStage:', err);
+      } finally {
+        this.bulkTranscribing = false;
+      }
+    },
+    addMoreVoices() {
+      this.addingMore = true;
     },
     drawWave() {
       if (!this._analyser) return;
@@ -2450,22 +2636,27 @@ comps['add-voice-modal'] = {
       const sec = Math.floor(s % 60);
       return m + ':' + (sec < 10 ? '0' : '') + sec;
     },
-    togglePlayer() {
-      if (this._audio && this.playing) {
+    toggleStagedPlayer(index) {
+      if (this.playing && this.currentStagedPlayIndex === index) {
         this.stopPlayer();
         return;
       }
+      this.stopPlayer();
+      const file = this.stagedFiles[index];
+      if (!file) return;
+
       if (this.$store.currentAudio) {
         this.$store.currentAudio.pause();
         this.$store.currentAudio = null;
         this.$store.currentName = '';
       }
-      const audio = new Audio(this.stagedFile.url);
+
+      const audio = new Audio(file.url);
       this._audio = audio;
-      this.seeker = true;
       this.playing = true;
+      this.currentStagedPlayIndex = index;
       this.$store.currentAudio = audio;
-      this.$store.currentName = this.stagedFile.name;
+      this.$store.currentName = file.name;
 
       audio.addEventListener('timeupdate', () => {
         this.currentTime = audio.currentTime;
@@ -2480,10 +2671,10 @@ comps['add-voice-modal'] = {
         this._audio = null;
       }
       this.playing = false;
-      this.seeker = false;
+      this.currentStagedPlayIndex = null;
       this.currentTime = 0;
       this.duration = 0;
-      if (this.$store.currentName === this.stagedFile?.name) {
+      if (this.$store.currentAudio) {
         this.$store.currentAudio = null;
         this.$store.currentName = '';
       }

@@ -35,7 +35,7 @@ except ImportError as exc:
     raise ImportError("fastapi is not installed. Run: pip install -r requirements.txt") from exc
 
 from src.cache import ModelCache
-from src.utils import clean_memory, convert_to_wav_24k, model_path, resolve_voice
+from src.utils import clean_memory, convert_to_wav_24k, model_path, resolve_voice, scan_wav_voices
 
 from .base import BaseEngine, register
 
@@ -91,14 +91,7 @@ class CosyvoiceEngine(BaseEngine):
 
     def list_models(self) -> list[dict]:
         voices_dir = os.path.join(os.getcwd(), "voices")
-        if not os.path.exists(voices_dir):
-            cloneable = []
-        else:
-            cloneable = sorted(
-                f
-                for f in os.listdir(voices_dir)
-                if f.lower().endswith(".wav") and not f.startswith(".")
-            )
+        cloneable = scan_wav_voices(voices_dir) if os.path.exists(voices_dir) else []
         voices = {"cloneable": cloneable} if cloneable else {}
 
         return [
@@ -128,13 +121,7 @@ class CosyvoiceEngine(BaseEngine):
 
     def list_voices(self) -> dict:
         voices_dir = os.path.join(os.getcwd(), "voices")
-        if not os.path.exists(voices_dir):
-            return {}
-        cloneable = sorted(
-            f
-            for f in os.listdir(voices_dir)
-            if f.lower().endswith(".wav") and not f.startswith(".")
-        )
+        cloneable = scan_wav_voices(voices_dir) if os.path.exists(voices_dir) else []
         return {"cloneable": cloneable} if cloneable else {}
 
     def validate(self, request: dict) -> None:

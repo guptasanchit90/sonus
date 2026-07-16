@@ -32,7 +32,7 @@ except ImportError as exc:
     raise ImportError("fastapi is not installed. Run: pip install -r requirements.txt") from exc
 
 from src.cache import ModelCache
-from src.utils import clean_memory, convert_to_wav_24k, model_path, resolve_voice
+from src.utils import clean_memory, convert_to_wav_24k, model_path, resolve_voice, scan_wav_voices
 
 from .base import BaseEngine, register
 
@@ -233,14 +233,7 @@ class FishSpeechEngine(BaseEngine):
         return model in _MODELS
 
     def list_models(self) -> list[dict]:
-        if not os.path.exists(VOICES_DIR):
-            cloneable = []
-        else:
-            cloneable = sorted(
-                f
-                for f in os.listdir(VOICES_DIR)
-                if f.lower().endswith(".wav") and not f.startswith(".")
-            )
+        cloneable = scan_wav_voices() if os.path.exists(VOICES_DIR) else []
         voices = {"cloneable": cloneable} if cloneable else {}
 
         return [
@@ -267,13 +260,7 @@ class FishSpeechEngine(BaseEngine):
         ]
 
     def list_voices(self) -> dict:
-        if not os.path.exists(VOICES_DIR):
-            return {}
-        cloneable = sorted(
-            f
-            for f in os.listdir(VOICES_DIR)
-            if f.lower().endswith(".wav") and not f.startswith(".")
-        )
+        cloneable = scan_wav_voices() if os.path.exists(VOICES_DIR) else []
         return {"cloneable": cloneable} if cloneable else {}
 
     def validate(self, request: dict) -> None:
