@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/logo.jpg" width="160" alt="Sonus Logo" style="border-radius: 16px;" />
+</p>
+
 # Sonus — Speak freely
 
 Multi-engine, offline audio hub (Speech, Music, SFX, STT) on your Mac. No cloud. No API keys. No one listening.
